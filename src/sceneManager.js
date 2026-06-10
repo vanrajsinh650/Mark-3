@@ -150,6 +150,20 @@ function createProceduralHelmet() {
   return group;
 }
 
+function createOccluderMesh() {
+  const geo = new THREE.SphereGeometry(1.0, 32, 32);
+  const mat = new THREE.MeshBasicMaterial({
+    colorWrite: false, // Transparent, but blocks pixels behind it in the depth buffer
+    depthWrite: true,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.scale.set(0.88, 1.02, 0.95); // Head-like ellipsoid
+  mesh.position.set(0, 0.05, -0.1); // Sit inside the helmet skull
+  mesh.scale.multiplyScalar(8); // Match metric space scale
+  mesh.renderOrder = 0; // Render first
+  return mesh;
+}
+
 // ─── Scene Manager ──────────────────────────────────────────────────────────
 
 export class SceneManager {
@@ -182,6 +196,10 @@ export class SceneManager {
     // Helmet group
     this.helmetRoot = new THREE.Group();
     this.scene.add(this.helmetRoot);
+
+    // Occluder (simulates head volume blocking back of helmet)
+    this.occluder = createOccluderMesh();
+    this.helmetRoot.add(this.occluder);
 
     this.proceduralHelmet = createProceduralHelmet();
     this.helmetRoot.add(this.proceduralHelmet);

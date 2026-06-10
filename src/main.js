@@ -36,6 +36,8 @@ const sliderPanel = document.getElementById("slider-panel");
 const offsetX = document.getElementById("offset-x");
 const offsetY = document.getElementById("offset-y");
 const offsetZ = document.getElementById("offset-z");
+const rotateX = document.getElementById("rotate-x");
+const rotateY = document.getElementById("rotate-y");
 const helmetScale = document.getElementById("helmet-scale");
 
 // Finish swatches
@@ -278,6 +280,12 @@ offsetY.addEventListener("input", () => {
 offsetZ.addEventListener("input", () => {
   scene.positionOffset.z = parseFloat(offsetZ.value);
 });
+rotateX.addEventListener("input", () => {
+  scene.rotationOffset.x = (parseFloat(rotateX.value) * Math.PI) / 180;
+});
+rotateY.addEventListener("input", () => {
+  scene.rotationOffset.y = (parseFloat(rotateY.value) * Math.PI) / 180;
+});
 helmetScale.addEventListener("input", () => {
   scene.scaleMultiplier = parseFloat(helmetScale.value);
 });
@@ -288,6 +296,19 @@ btnResetModel.addEventListener("click", () => {
   // Reset filters
   scene.posFilter.reset();
   scene.quatFilter.reset();
+
+  // Reset offsets
+  scene.positionOffset.set(0, 0, 0);
+  scene.rotationOffset.set(0, 0, 0);
+  scene.scaleMultiplier = 1.0;
+
+  // Reset UI sliders
+  offsetX.value = "0";
+  offsetY.value = "0";
+  offsetZ.value = "0";
+  rotateX.value = "0";
+  rotateY.value = "0";
+  helmetScale.value = "1.0";
 });
 
 // Finish presets
