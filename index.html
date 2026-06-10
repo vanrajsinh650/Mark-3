@@ -1,13 +1,117 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>mark-3</title>
-  </head>
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.js"></script>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Iron Man Mark 3 Helmet AR Filter - Real-time face tracking with Three.js and MediaPipe" />
+  <title>MARK III — Helmet AR System</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+</head>
+<body>
+  <!-- Loading Screen -->
+  <div id="loading-screen">
+    <div class="loading-title">MARK III</div>
+    <div class="loading-subtitle">Initializing Helmet AR System...</div>
+    <div class="loading-bar-container">
+      <div class="loading-bar" id="loading-bar"></div>
+    </div>
+  </div>
+
+  <!-- Main App -->
+  <div id="app">
+    <video id="webcam" autoplay playsinline muted></video>
+    <canvas id="three-canvas"></canvas>
+  </div>
+
+  <!-- Drop Zone for custom models -->
+  <div id="drop-zone">
+    <div class="drop-label">DROP .GLB / .GLTF MODEL HERE</div>
+  </div>
+
+  <!-- HUD Overlay -->
+  <div id="hud">
+    <!-- Corner brackets -->
+    <div class="hud-corner top-left"></div>
+    <div class="hud-corner top-right"></div>
+    <div class="hud-corner bottom-left"></div>
+    <div class="hud-corner bottom-right"></div>
+
+    <!-- Status bar -->
+    <div class="hud-status">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text">WAITING FOR CAMERA</span>
+    </div>
+
+    <!-- Recording indicator -->
+    <div class="recording-indicator" id="rec-indicator">
+      <div class="rec-dot"></div>
+      <span>REC</span>
+    </div>
+
+    <!-- Right panel: action buttons -->
+    <div class="hud-panel">
+      <button class="hud-btn" id="btn-snapshot" title="Capture snapshot">
+        📸
+        <span class="tooltip">Snapshot</span>
+      </button>
+      <button class="hud-btn" id="btn-record" title="Record video">
+        ⏺
+        <span class="tooltip">Record</span>
+      </button>
+      <button class="hud-btn" id="btn-sliders" title="Fine-tune position">
+        ⚙
+        <span class="tooltip">Adjust</span>
+      </button>
+      <button class="hud-btn" id="btn-reset-model" title="Reset to default helmet">
+        🔄
+        <span class="tooltip">Reset Model</span>
+      </button>
+    </div>
+
+    <!-- Left panel: finish presets -->
+    <div class="finish-panel">
+      <div class="finish-swatch classic active" data-finish="classic">
+        <span class="tooltip">Classic Red &amp; Gold</span>
+      </div>
+      <div class="finish-swatch stealth" data-finish="stealth">
+        <span class="tooltip">Stealth Black</span>
+      </div>
+      <div class="finish-swatch titanium" data-finish="titanium">
+        <span class="tooltip">Raw Titanium</span>
+      </div>
+      <div class="finish-swatch carbon" data-finish="carbon">
+        <span class="tooltip">Carbon Fiber</span>
+      </div>
+    </div>
+
+    <!-- Bottom info bar -->
+    <div class="hud-info-bar">
+      <span id="fps-display">FPS: --</span>
+      <span>MARK III HELMET SYSTEM</span>
+      <span id="face-status">FACE: NONE</span>
+    </div>
+
+    <!-- Slider panel (hidden by default) -->
+    <div class="slider-panel" id="slider-panel">
+      <label>
+        X Offset
+        <input type="range" id="offset-x" min="-0.1" max="0.1" step="0.002" value="0" />
+      </label>
+      <label>
+        Y Offset
+        <input type="range" id="offset-y" min="-0.1" max="0.1" step="0.002" value="0" />
+      </label>
+      <label>
+        Z Offset
+        <input type="range" id="offset-z" min="-0.1" max="0.1" step="0.002" value="0" />
+      </label>
+      <label>
+        Scale
+        <input type="range" id="helmet-scale" min="0.5" max="2.0" step="0.05" value="1.0" />
+      </label>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
 </html>
