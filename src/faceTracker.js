@@ -64,19 +64,23 @@ export class FaceTracker {
   _detect() {
     if (!this.running) return;
 
-    if (this.videoElement.readyState >= 2) {
-      const results = this.faceLandmarker.detectForVideo(
-        this.videoElement,
-        performance.now()
-      );
-
-      if (this.onResult) {
-        this.onResult(
-          results,
-          this.videoElement.videoWidth,
-          this.videoElement.videoHeight
+    try {
+      if (this.videoElement.readyState >= 2) {
+        const results = this.faceLandmarker.detectForVideo(
+          this.videoElement,
+          performance.now()
         );
+
+        if (this.onResult) {
+          this.onResult(
+            results,
+            this.videoElement.videoWidth,
+            this.videoElement.videoHeight
+          );
+        }
       }
+    } catch (err) {
+      console.error("Error in FaceTracker detection loop:", err);
     }
 
     this._rafId = requestAnimationFrame(() => this._detect());

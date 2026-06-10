@@ -12,6 +12,7 @@
 
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { OneEuroFilterVec } from "./oneEuroFilter.js";
 
 // ─── Procedural Mark 3 Helmet ───────────────────────────────────────────────
 
@@ -79,7 +80,6 @@ function createProceduralHelmet() {
   chinGeo.translate(0, 0, 0);
   const chin = new THREE.Mesh(chinGeo, mats.red);
   chin.position.set(0, -0.65, 0.3);
-  const chinEdges = new THREE.EdgesGeometry(chinGeo);
   group.add(chin);
 
   // ── Jaw lines (dark metal seams) ──
@@ -148,22 +148,6 @@ function createProceduralHelmet() {
   return group;
 }
 
-// ─── Face-occlusion mesh ─────────────────────────────────────────────────────
-// An invisible sphere that writes to the depth buffer but not the colour buffer.
-// It covers the area where the user's face is, preventing the back half of the
-// helmet from rendering and creating the illusion of a solid helmet.
-
-function createOcclusionMesh() {
-  const geo = new THREE.SphereGeometry(0.065, 32, 32);
-  const mat = new THREE.MeshBasicMaterial({
-    colorWrite: false,
-    side: THREE.BackSide,
-  });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.renderOrder = -1; // render first so helmet depth-tests against it
-  return mesh;
-}
-
 // ─── Scene Manager ──────────────────────────────────────────────────────────
 
 export class SceneManager {
@@ -196,8 +180,9 @@ export class SceneManager {
     this.proceduralHelmet = createProceduralHelmet();
     this.helmetRoot.add(this.proceduralHelmet);
 
-    this.occlusionMesh = createOcclusionMesh();
-    this.helmetRoot.add(this.occlusionMesh);
+    // One Euro Filters for position and rotation
+    this.posFilter = new OneEuroFilterVec(3, 30, 0.8, 0.5, 1.0);
+    this.quatFilter = new OneEuroFilterVec(4, 30, 0.5, 0.3, 1.0);
 
     // Custom model placeholder
     this.customModel = null;
@@ -244,28 +229,45 @@ export class SceneManager {
     this.camera.fov = 55;
     this.camera.updateProjectionMatrix();
 
-    this.renderer.setSize(videoWidth, videoHeight);
+    // Pass false so Three.js does not set inline styles that override CSS width/height
+    this.renderer.setSize(videoWidth, videoHeight, false);
   }
 
   /**
    * Apply the 4×4 facial transformation matrix from MediaPipe.
    */
-  applyFaceMatrix(matrixData) {
-    const m = new THREE.Matrix4();
-    m.fromArray(matrixData);
+  applyFaceMatrix(matrixData, timestamp) {
+    if (!matrixData) return;
 
-    // Decompose to apply offsets
+    const m = new THREE.Matrix4().fromArray(matrixData);
+
+    // Decompose to apply offsets and filter
     const pos = new THREE.Vector3();
     const quat = new THREE.Quaternion();
     const scale = new THREE.Vector3();
     m.decompose(pos, quat, scale);
 
-    // Apply user offsets
-    pos.add(this.positionOffset);
+    // Validate inputs to prevent NaNs from propagating
+    if (
+      isNaN(pos.x) || isNaN(pos.y) || isNaN(pos.z) ||
+      isNaN(quat.x) || isNaN(quat.y) || isNaN(quat.z) || isNaN(quat.w)
+    ) {
+      return;
+    }
+
+    // Filter position and rotation
+    const smoothedPosArr = this.posFilter.filter([pos.x, pos.y, pos.z], timestamp);
+    const smoothedPos = new THREE.Vector3().fromArray(smoothedPosArr);
+
+    const smoothedQuatArr = this.quatFilter.filter([quat.x, quat.y, quat.z, quat.w], timestamp);
+    const smoothedQuat = new THREE.Quaternion().fromArray(smoothedQuatArr).normalize();
+
+    // Apply translation offset
+    smoothedPos.add(this.positionOffset);
 
     // Reconstruct
-    this.helmetRoot.position.copy(pos);
-    this.helmetRoot.quaternion.copy(quat);
+    this.helmetRoot.position.copy(smoothedPos);
+    this.helmetRoot.quaternion.copy(smoothedQuat);
 
     // Apply rotation offset
     const offsetQuat = new THREE.Quaternion().setFromEuler(this.rotationOffset);

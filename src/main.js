@@ -12,7 +12,6 @@
 import "./style.css";
 import { FaceTracker } from "./faceTracker.js";
 import { SceneManager } from "./sceneManager.js";
-import { OneEuroFilterVec } from "./oneEuroFilter.js";
 
 // ─── DOM refs ────────────────────────────────────────────────────────────────
 const loadingScreen = document.getElementById("loading-screen");
@@ -50,11 +49,6 @@ let cameraReady = false;
 let lastFrameTime = performance.now();
 let frameCount = 0;
 let fps = 0;
-
-// One Euro Filters for position (3) and quaternion (4)
-// Tuned for face tracking: low minCutoff = very smooth at rest, moderate beta = responsive on fast moves
-const posFilter = new OneEuroFilterVec(3, 30, 0.8, 0.5, 1.0);
-const quatFilter = new OneEuroFilterVec(4, 30, 0.5, 0.3, 1.0);
 
 // Recording state
 let mediaRecorder = null;
@@ -114,103 +108,39 @@ async function init() {
 
 // ─── Face result callback ────────────────────────────────────────────────────
 function onFaceResult(results, videoWidth, videoHeight) {
-  // Update canvas size if video dimensions changed
-  if (canvasEl.width !== videoWidth || canvasEl.height !== videoHeight) {
-    scene.updateCameraForVideo(videoWidth, videoHeight);
-  }
+  try {
+    // Update canvas size if video dimensions changed
+    if (canvasEl.width !== videoWidth || canvasEl.height !== videoHeight) {
+      scene.updateCameraForVideo(videoWidth, videoHeight);
+    }
 
-  if (
-    results.facialTransformationMatrixes &&
-    results.facialTransformationMatrixes.length > 0
-  ) {
-    faceStatus.textContent = "FACE: LOCKED";
+    if (
+      results.facialTransformationMatrixes &&
+      results.facialTransformationMatrixes.length > 0
+    ) {
+      faceStatus.textContent = "FACE: LOCKED";
 
-    const matData = results.facialTransformationMatrixes[0].data;
-    const timestamp = performance.now() / 1000;
+      const matData = results.facialTransformationMatrixes[0].data;
+      const timestamp = performance.now() / 1000;
 
-    // Decompose the raw matrix
-    const rawMatrix = new Float32Array(matData);
-
-    // Extract position (translation column)
-    const rawPos = [rawMatrix[12], rawMatrix[13], rawMatrix[14]];
-
-    // Extract quaternion from rotation part of matrix
-    // We'll use a simplified extraction
-    const te = rawMatrix;
-    const m11 = te[0], m12 = te[4], m13 = te[8];
-    const m21 = te[1], m22 = te[5], m23 = te[9];
-    const m31 = te[2], m32 = te[6], m33 = te[10];
-    const trace = m11 + m22 + m33;
-
-    let qx, qy, qz, qw;
-    if (trace > 0) {
-      const s = 0.5 / Math.sqrt(trace + 1.0);
-      qw = 0.25 / s;
-      qx = (m32 - m23) * s;
-      qy = (m13 - m31) * s;
-      qz = (m21 - m12) * s;
-    } else if (m11 > m22 && m11 > m33) {
-      const s = 2.0 * Math.sqrt(1.0 + m11 - m22 - m33);
-      qw = (m32 - m23) / s;
-      qx = 0.25 * s;
-      qy = (m12 + m21) / s;
-      qz = (m13 + m31) / s;
-    } else if (m22 > m33) {
-      const s = 2.0 * Math.sqrt(1.0 + m22 - m11 - m33);
-      qw = (m13 - m31) / s;
-      qx = (m12 + m21) / s;
-      qy = 0.25 * s;
-      qz = (m23 + m32) / s;
+      scene.applyFaceMatrix(matData, timestamp);
+      scene.helmetRoot.visible = true;
     } else {
-      const s = 2.0 * Math.sqrt(1.0 + m33 - m11 - m22);
-      qw = (m21 - m12) / s;
-      qx = (m13 + m31) / s;
-      qy = (m23 + m32) / s;
-      qz = 0.25 * s;
+      faceStatus.textContent = "FACE: SEARCHING...";
+      scene.helmetRoot.visible = false;
     }
-
-    // Smooth with One Euro Filter
-    const smoothedPos = posFilter.filter(rawPos, timestamp);
-    const smoothedQuat = quatFilter.filter([qx, qy, qz, qw], timestamp);
-
-    // Normalize quaternion after filtering
-    const ql = Math.sqrt(
-      smoothedQuat[0] ** 2 +
-      smoothedQuat[1] ** 2 +
-      smoothedQuat[2] ** 2 +
-      smoothedQuat[3] ** 2
-    );
-    if (ql > 0) {
-      smoothedQuat[0] /= ql;
-      smoothedQuat[1] /= ql;
-      smoothedQuat[2] /= ql;
-      smoothedQuat[3] /= ql;
-    }
-
-    // Rebuild the smoothed matrix
-    const sx = smoothedQuat[0], sy = smoothedQuat[1], sz = smoothedQuat[2], sw = smoothedQuat[3];
-    const xx = sx * sx, yy = sy * sy, zz = sz * sz;
-    const xy = sx * sy, xz = sx * sz, yz = sy * sz;
-    const wx = sw * sx, wy = sw * sy, wz = sw * sz;
-
-    const smoothedMatrix = [
-      1 - 2 * (yy + zz), 2 * (xy + wz), 2 * (xz - wy), 0,
-      2 * (xy - wz), 1 - 2 * (xx + zz), 2 * (yz + wx), 0,
-      2 * (xz + wy), 2 * (yz - wx), 1 - 2 * (xx + yy), 0,
-      smoothedPos[0], smoothedPos[1], smoothedPos[2], 1,
-    ];
-
-    scene.applyFaceMatrix(smoothedMatrix);
-    scene.helmetRoot.visible = true;
-  } else {
-    faceStatus.textContent = "FACE: SEARCHING...";
-    scene.helmetRoot.visible = false;
+  } catch (err) {
+    console.error("Error in onFaceResult:", err);
   }
 }
 
 // ─── Render loop ─────────────────────────────────────────────────────────────
 function renderLoop() {
-  scene.render();
+  try {
+    scene.render();
+  } catch (err) {
+    console.error("Render loop error:", err);
+  }
 
   // FPS counter
   frameCount++;
@@ -347,8 +277,8 @@ helmetScale.addEventListener("input", () => {
 btnResetModel.addEventListener("click", () => {
   scene.useProceduralHelmet();
   // Reset filters
-  posFilter.reset();
-  quatFilter.reset();
+  scene.posFilter.reset();
+  scene.quatFilter.reset();
 });
 
 // Finish presets
