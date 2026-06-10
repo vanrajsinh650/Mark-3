@@ -18,27 +18,27 @@ import { OneEuroFilterVec } from "./oneEuroFilter.js";
 
 function createHelmetMaterials() {
   const red = new THREE.MeshStandardMaterial({
-    color: 0x8b0000,
-    metalness: 0.85,
-    roughness: 0.25,
+    color: 0x9e1a1a, // Slightly brighter, richer metallic red
+    metalness: 0.75, // Lower metalness so it does not turn black without environment map
+    roughness: 0.28,
   });
 
   const gold = new THREE.MeshStandardMaterial({
-    color: 0xdaa520,
-    metalness: 0.9,
-    roughness: 0.2,
+    color: 0xe5b83b, // Rich gold color
+    metalness: 0.8,  // Adjusted for a premium satin gold look
+    roughness: 0.24,
   });
 
   const darkMetal = new THREE.MeshStandardMaterial({
-    color: 0x1a1a1a,
-    metalness: 0.95,
+    color: 0x242424,
+    metalness: 0.85,
     roughness: 0.3,
   });
 
   const eyeGlow = new THREE.MeshStandardMaterial({
     color: 0x87ceeb,
     emissive: 0x87ceeb,
-    emissiveIntensity: 3.0,
+    emissiveIntensity: 3.5,
     metalness: 0.0,
     roughness: 0.0,
   });
@@ -50,53 +50,109 @@ function createProceduralHelmet() {
   const group = new THREE.Group();
   const mats = createHelmetMaterials();
 
-  // ── Main skull dome ──
-  const skullGeo = new THREE.SphereGeometry(1, 64, 64, 0, Math.PI * 2, 0, Math.PI * 0.65);
+  // ── Main skull dome (Red) ──
+  const skullGeo = new THREE.SphereGeometry(1, 32, 32, 0, Math.PI * 2, 0, Math.PI * 0.62);
   const skull = new THREE.Mesh(skullGeo, mats.red);
-  skull.scale.set(1.0, 1.1, 1.05);
+  skull.scale.set(1.0, 1.12, 1.05);
   skull.position.set(0, 0.15, -0.05);
   group.add(skull);
 
-  // ── Side panels (gold) ──
+  // ── Forehead Brow Plate (Red, wraps over the gold faceplate) ──
+  const browPlateGeo = new THREE.BoxGeometry(0.9, 0.22, 0.35);
+  const browPlate = new THREE.Mesh(browPlateGeo, mats.red);
+  browPlate.position.set(0, 0.28, 0.78);
+  browPlate.rotation.x = 0.22; // Tilt forward
+  group.add(browPlate);
+
+  // Forehead center seam (Dark Metal)
+  const foreheadSeamGeo = new THREE.BoxGeometry(0.04, 0.25, 0.4);
+  const foreheadSeam = new THREE.Mesh(foreheadSeamGeo, mats.darkMetal);
+  foreheadSeam.position.set(0, 0.42, 0.72);
+  foreheadSeam.rotation.x = 0.15;
+  group.add(foreheadSeam);
+
+  // ── Composite Faceplate Group (Gold, realistic contours) ──
+  const faceplateGroup = new THREE.Group();
+  faceplateGroup.name = "faceplate";
+
+  // 1. Forehead band of faceplate
+  const faceBrowGeo = new THREE.BoxGeometry(0.82, 0.2, 0.3);
+  const faceBrow = new THREE.Mesh(faceBrowGeo, mats.gold);
+  faceBrow.position.set(0, 0.12, 0.82);
+  faceBrow.rotation.x = 0.12;
+  faceplateGroup.add(faceBrow);
+
+  // 2. Nose bridge
+  const faceNoseGeo = new THREE.BoxGeometry(0.16, 0.35, 0.25);
+  const faceNose = new THREE.Mesh(faceNoseGeo, mats.gold);
+  faceNose.position.set(0, -0.1, 0.91);
+  faceplateGroup.add(faceNose);
+
+  // 3. Cheeks left and right
   for (const side of [-1, 1]) {
-    const panelGeo = new THREE.SphereGeometry(0.35, 32, 32, 0, Math.PI, 0, Math.PI * 0.5);
-    const panel = new THREE.Mesh(panelGeo, mats.gold);
-    panel.position.set(side * 0.75, -0.1, 0.15);
-    panel.scale.set(0.6, 0.9, 0.7);
-    panel.rotation.z = side * 0.3;
-    group.add(panel);
+    const cheekGeo = new THREE.BoxGeometry(0.3, 0.48, 0.25);
+    const cheek = new THREE.Mesh(cheekGeo, mats.gold);
+    cheek.position.set(side * 0.3, -0.16, 0.86);
+    cheek.rotation.y = side * -0.22; // angled back
+    cheek.rotation.z = side * 0.12;  // tapers down
+    faceplateGroup.add(cheek);
   }
 
-  // ── Faceplate ──
-  const faceplateGeo = new THREE.SphereGeometry(0.95, 64, 64, Math.PI * 0.25, Math.PI * 0.5, Math.PI * 0.15, Math.PI * 0.45);
-  const faceplate = new THREE.Mesh(faceplateGeo, mats.gold);
-  faceplate.position.set(0, -0.15, 0.25);
-  faceplate.scale.set(1.0, 0.9, 0.9);
-  faceplate.name = "faceplate";
-  group.add(faceplate);
+  // 4. Upper mouth/lip plate
+  const lipGeo = new THREE.BoxGeometry(0.48, 0.12, 0.22);
+  const lip = new THREE.Mesh(lipGeo, mats.gold);
+  lip.position.set(0, -0.38, 0.87);
+  lip.rotation.x = -0.12;
+  faceplateGroup.add(lip);
 
-  // ── Chin guard ──
-  const chinGeo = new THREE.BoxGeometry(0.6, 0.25, 0.4);
-  chinGeo.translate(0, 0, 0);
+  // Tag all meshes in the faceplateGroup so they are recognized by the finish preset system
+  faceplateGroup.traverse((child) => {
+    if (child.isMesh) child.name = "faceplate";
+  });
+  group.add(faceplateGroup);
+
+  // ── Jaw & Chin ──
+  // 1. Jaw Cheeks (Red, forms lower sides of helmet)
+  for (const side of [-1, 1]) {
+    const jawCheekGeo = new THREE.BoxGeometry(0.38, 0.38, 0.45);
+    const jawCheek = new THREE.Mesh(jawCheekGeo, mats.red);
+    jawCheek.position.set(side * 0.52, -0.4, 0.65);
+    jawCheek.rotation.y = side * 0.25;
+    jawCheek.rotation.z = side * -0.12;
+    group.add(jawCheek);
+  }
+
+  // 2. Chin Guard (Red, angular front chin)
+  const chinGeo = new THREE.BoxGeometry(0.38, 0.28, 0.35);
   const chin = new THREE.Mesh(chinGeo, mats.red);
-  chin.position.set(0, -0.65, 0.3);
+  chin.position.set(0, -0.58, 0.72);
+  chin.rotation.x = -0.15;
   group.add(chin);
 
-  // ── Jaw lines (dark metal seams) ──
+  // ── Ear covers (Gold/Dark Metal circular caps) ──
   for (const side of [-1, 1]) {
-    const jawGeo = new THREE.BoxGeometry(0.08, 0.5, 0.15);
-    const jaw = new THREE.Mesh(jawGeo, mats.darkMetal);
-    jaw.position.set(side * 0.45, -0.35, 0.35);
-    jaw.rotation.z = side * 0.15;
-    group.add(jaw);
+    const earGeo = new THREE.CylinderGeometry(0.24, 0.22, 0.12, 32);
+    const ear = new THREE.Mesh(earGeo, mats.darkMetal);
+    ear.position.set(side * 0.94, 0.0, 0.0);
+    ear.rotation.z = Math.PI / 2;
+    ear.rotation.x = 0.1;
+    group.add(ear);
+    
+    // Gold center insert
+    const earInsertGeo = new THREE.CylinderGeometry(0.15, 0.15, 0.04, 16);
+    const earInsert = new THREE.Mesh(earInsertGeo, mats.gold);
+    earInsert.position.set(side * 0.99, 0.0, 0.0);
+    earInsert.rotation.z = Math.PI / 2;
+    group.add(earInsert);
   }
 
-  // ── Eye slits (glowing) ──
+  // ── Eye slits (glowing sky blue) ──
   for (const side of [-1, 1]) {
-    const eyeGeo = new THREE.BoxGeometry(0.28, 0.09, 0.12);
+    // Left/Right eye slits angled downwards towards center
+    const eyeGeo = new THREE.BoxGeometry(0.22, 0.045, 0.08);
     const eye = new THREE.Mesh(eyeGeo, mats.eyeGlow);
-    eye.position.set(side * 0.28, -0.05, 0.8);
-    eye.rotation.z = side * -0.15;
+    eye.position.set(side * 0.22, -0.02, 0.96);
+    eye.rotation.z = side * -0.12;
     eye.name = "eye";
     group.add(eye);
 
@@ -109,42 +165,19 @@ function createProceduralHelmet() {
     });
     const sprite = new THREE.Sprite(spriteMat);
     sprite.position.copy(eye.position);
-    sprite.scale.set(0.5, 0.3, 1);
+    sprite.scale.set(0.4, 0.2, 1);
     sprite.name = "eyeGlow";
     group.add(sprite);
   }
 
-  // ── Forehead ridge ──
-  const ridgeGeo = new THREE.BoxGeometry(0.12, 0.08, 0.6);
-  const ridge = new THREE.Mesh(ridgeGeo, mats.darkMetal);
-  ridge.position.set(0, 0.25, 0.45);
-  group.add(ridge);
-
-  // ── Top crest ──
-  const crestGeo = new THREE.CylinderGeometry(0.06, 0.04, 0.5, 16);
-  const crest = new THREE.Mesh(crestGeo, mats.darkMetal);
-  crest.position.set(0, 0.65, -0.05);
-  crest.rotation.x = Math.PI * 0.15;
-  group.add(crest);
-
-  // ── Ear covers ──
-  for (const side of [-1, 1]) {
-    const earGeo = new THREE.CylinderGeometry(0.15, 0.12, 0.08, 16);
-    const ear = new THREE.Mesh(earGeo, mats.darkMetal);
-    ear.position.set(side * 0.95, 0.0, -0.05);
-    ear.rotation.z = Math.PI / 2;
-    group.add(ear);
-  }
-
-  // ── Neck guard ──
-  const neckGeo = new THREE.CylinderGeometry(0.55, 0.65, 0.35, 32, 1, true);
+  // ── Neck guard (Red collar) ──
+  const neckGeo = new THREE.CylinderGeometry(0.68, 0.78, 0.45, 32, 1, true);
   const neck = new THREE.Mesh(neckGeo, mats.red);
-  neck.position.set(0, -0.75, 0.0);
+  neck.position.set(0, -0.75, -0.1);
+  neck.rotation.x = 0.1;
   group.add(neck);
 
   // Scale to head-size in MediaPipe metric space (units ≈ centimeters).
-  // The geometry has radius ~1, a human head is ~20cm across,
-  // so we need scale ≈ 8–10 to fill the head correctly.
   group.scale.set(8, 8, 8);
 
   return group;
@@ -186,6 +219,7 @@ export class SceneManager {
     // Far plane must be large enough for MediaPipe's metric space (face at Z ≈ -30 to -80)
     this.camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 1000);
     this.camera.position.set(0, 0, 0);
+    this.scene.add(this.camera); // Add camera to scene so its relative headlight directional lights update
 
     // Debug frame counter
     this._debugFrameCount = 0;
@@ -221,24 +255,29 @@ export class SceneManager {
   }
 
   _setupLights() {
-    // Strong directional light from upper-right
-    const dir = new THREE.DirectionalLight(0xffffff, 2.5);
-    dir.position.set(2, 3, 4);
-    this.scene.add(dir);
+    // Front-right key light (bright white)
+    const keyLight = new THREE.DirectionalLight(0xffffff, 3.2);
+    keyLight.position.set(3, 4, 5);
+    this.camera.add(keyLight);
 
-    // Fill light from left
-    const fill = new THREE.DirectionalLight(0xaaccff, 1.0);
-    fill.position.set(-3, 1, 2);
-    this.scene.add(fill);
+    // Left fill light (cool blue)
+    const fillLight = new THREE.DirectionalLight(0xaaccff, 1.8);
+    fillLight.position.set(-3, 2, 3);
+    this.camera.add(fillLight);
 
-    // Hemisphere for ambient
-    const hemi = new THREE.HemisphereLight(0xffeedd, 0x223344, 1.5);
-    this.scene.add(hemi);
+    // Bottom bounce light (warm orange representing ground reflection)
+    const bounceLight = new THREE.DirectionalLight(0xffaa44, 1.2);
+    bounceLight.position.set(0, -4, 2);
+    this.camera.add(bounceLight);
 
-    // Subtle rim light from behind
-    const rim = new THREE.DirectionalLight(0xff4400, 0.6);
-    rim.position.set(0, 0, -4);
-    this.scene.add(rim);
+    // Top rim light (white)
+    const rimLight = new THREE.DirectionalLight(0xffffff, 1.5);
+    rimLight.position.set(0, 5, -2);
+    this.camera.add(rimLight);
+
+    // Ambient hemisphere light
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x222222, 1.0);
+    this.scene.add(hemiLight);
   }
 
   /**
