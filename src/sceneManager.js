@@ -142,8 +142,10 @@ function createProceduralHelmet() {
   neck.position.set(0, -0.75, 0.0);
   group.add(neck);
 
-  // Scale everything to roughly head-size in MediaPipe metric space
-  group.scale.set(0.08, 0.08, 0.08);
+  // Scale to head-size in MediaPipe metric space (units ≈ centimeters).
+  // The geometry has radius ~1, a human head is ~20cm across,
+  // so we need scale ≈ 8–10 to fill the head correctly.
+  group.scale.set(8, 8, 8);
 
   return group;
 }
@@ -167,8 +169,12 @@ export class SceneManager {
     this.scene = new THREE.Scene();
 
     // Camera – we'll update FOV/aspect once the video dimensions are known
-    this.camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.01, 100);
+    // Far plane must be large enough for MediaPipe's metric space (face at Z ≈ -30 to -80)
+    this.camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 1000);
     this.camera.position.set(0, 0, 0);
+
+    // Debug frame counter
+    this._debugFrameCount = 0;
 
     // Lighting
     this._setupLights();
@@ -247,6 +253,12 @@ export class SceneManager {
     const scale = new THREE.Vector3();
     m.decompose(pos, quat, scale);
 
+    // Debug: log position values every 60 frames so we can see the coordinate space
+    this._debugFrameCount++;
+    if (this._debugFrameCount % 60 === 1) {
+      console.log(`[MARK3 DEBUG] Face pos: x=${pos.x.toFixed(2)}, y=${pos.y.toFixed(2)}, z=${pos.z.toFixed(2)} | scale: ${scale.x.toFixed(3)}`);
+    }
+
     // Validate inputs to prevent NaNs from propagating
     if (
       isNaN(pos.x) || isNaN(pos.y) || isNaN(pos.z) ||
@@ -299,7 +311,7 @@ export class SceneManager {
           const center = box.getCenter(new THREE.Vector3());
           const size = box.getSize(new THREE.Vector3());
           const maxDim = Math.max(size.x, size.y, size.z);
-          const desiredSize = 0.18; // roughly head-sized in metric space
+          const desiredSize = 18; // roughly head-sized in metric space (cm)
           const scaleFactor = desiredSize / maxDim;
 
           this.customModel.position.sub(center);

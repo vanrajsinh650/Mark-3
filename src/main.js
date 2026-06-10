@@ -23,6 +23,7 @@ const statusDot = document.getElementById("status-dot");
 const statusText = document.getElementById("status-text");
 const fpsDisplay = document.getElementById("fps-display");
 const faceStatus = document.getElementById("face-status");
+const faceCoords = document.getElementById("face-coords");
 
 // Buttons
 const btnSnapshot = document.getElementById("btn-snapshot");
@@ -90,7 +91,9 @@ async function init() {
   }
 
   // 4. Match Three.js camera to webcam dimensions
-  scene.updateCameraForVideo(webcamEl.videoWidth, webcamEl.videoHeight);
+  if (webcamEl.videoWidth && webcamEl.videoHeight) {
+    scene.updateCameraForVideo(webcamEl.videoWidth, webcamEl.videoHeight);
+  }
 
   // 5. Hook up face result callback
   tracker.onResult = onFaceResult;
@@ -109,6 +112,8 @@ async function init() {
 // ─── Face result callback ────────────────────────────────────────────────────
 function onFaceResult(results, videoWidth, videoHeight) {
   try {
+    if (!videoWidth || !videoHeight) return;
+
     // Update canvas size if video dimensions changed
     if (canvasEl.width !== videoWidth || canvasEl.height !== videoHeight) {
       scene.updateCameraForVideo(videoWidth, videoHeight);
@@ -125,9 +130,13 @@ function onFaceResult(results, videoWidth, videoHeight) {
 
       scene.applyFaceMatrix(matData, timestamp);
       scene.helmetRoot.visible = true;
+
+      const pos = scene.helmetRoot.position;
+      faceCoords.textContent = `POS: X:${pos.x.toFixed(1)} Y:${pos.y.toFixed(1)} Z:${pos.z.toFixed(1)}`;
     } else {
       faceStatus.textContent = "FACE: SEARCHING...";
       scene.helmetRoot.visible = false;
+      faceCoords.textContent = "POS: --";
     }
   } catch (err) {
     console.error("Error in onFaceResult:", err);

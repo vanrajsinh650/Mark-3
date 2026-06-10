@@ -89,21 +89,22 @@
       <span id="fps-display">FPS: --</span>
       <span>MARK III HELMET SYSTEM</span>
       <span id="face-status">FACE: NONE</span>
+      <span id="face-coords" style="font-family: var(--font-display);">POS: --</span>
     </div>
 
     <!-- Slider panel (hidden by default) -->
     <div class="slider-panel" id="slider-panel">
       <label>
-        X Offset
-        <input type="range" id="offset-x" min="-0.1" max="0.1" step="0.002" value="0" />
+        X Offset (cm)
+        <input type="range" id="offset-x" min="-15" max="15" step="0.1" value="0" />
       </label>
       <label>
-        Y Offset
-        <input type="range" id="offset-y" min="-0.1" max="0.1" step="0.002" value="0" />
+        Y Offset (cm)
+        <input type="range" id="offset-y" min="-15" max="15" step="0.1" value="0" />
       </label>
       <label>
-        Z Offset
-        <input type="range" id="offset-z" min="-0.1" max="0.1" step="0.002" value="0" />
+        Z Offset (cm)
+        <input type="range" id="offset-z" min="-30" max="30" step="0.1" value="0" />
       </label>
       <label>
         Scale
