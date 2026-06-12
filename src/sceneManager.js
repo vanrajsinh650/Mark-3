@@ -3,8 +3,8 @@
  *
  * AR helmet overlay:
  * - Helmet sits correctly wrapping around the user's full head
- * - Z-axis shifted backward (-13.0cm) so the face sits inside the helmet cavity
- * - Face blocker sphere sits inside the helmet wrapper as a dark inner lining
+ * - Rotates around the head's natural pivot (Z=-11cm, Y=-4.5cm) to prevent drift/tilting issues
+ * - Completely removed face blocker sphere (as requested)
  * - Eyes set to glow bright cyan for a premium, high-tech look
  * - DoubleSide rendering fixes broken model faces
  */
@@ -12,26 +12,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OneEuroFilterVec } from "./oneEuroFilter.js";
-
-// ─── Face Blocker ───────────────────────────────────────────────────────────
-
-function createFaceBlocker() {
-  const geo = new THREE.SphereGeometry(1, 48, 48);
-  const mat = new THREE.MeshStandardMaterial({
-    color: 0x111111,        // Very dark grey/black interior lining
-    metalness: 0.5,
-    roughness: 0.8,
-    side: THREE.FrontSide,
-    depthWrite: false,       // Critical: never block helmet meshes
-    depthTest: true,
-  });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.renderOrder = -1;    // Render first, before helmet meshes
-  mesh.name = "faceBlocker";
-  return mesh;
-}
-
-// ─── Scene Manager ──────────────────────────────────────────────────────────
 
 export class SceneManager {
   constructor(canvas) {
@@ -59,9 +39,6 @@ export class SceneManager {
     this.helmetRoot.visible = false;
     this.scene.add(this.helmetRoot);
 
-    // Create the face blocker
-    this.faceBlocker = createFaceBlocker();
-
     this.helmetModel = null;
     this.helmetWrapper = null;
 
@@ -69,7 +46,7 @@ export class SceneManager {
     this.posFilter = new OneEuroFilterVec(3, 30, 0.8, 0.5, 1.0);
     this.quatFilter = new OneEuroFilterVec(4, 30, 0.5, 0.3, 1.0);
 
-    // Offsets
+    // Offsets (controlled by sliders)
     this.positionOffset = new THREE.Vector3(0, 0, 0);
     this.scaleMultiplier = 1.0;
     this.rotationOffset = new THREE.Euler(0, 0, 0);
@@ -115,7 +92,7 @@ export class SceneManager {
   }
 
   /**
-   * DoubleSide rendering + render order on all meshes + glowing eyes
+   * DoubleSide rendering + glowing eyes
    */
   _prepareModel(model) {
     console.log("=== GLB HELMET PARTS ===");
@@ -123,7 +100,6 @@ export class SceneManager {
       if (child.isMesh) {
         console.log(`  mesh: "${child.name || "unnamed"}"`);
         
-        // Ensure child is visible
         child.visible = true;
 
         const mats = Array.isArray(child.material) ? child.material : [child.material];
@@ -147,10 +123,10 @@ export class SceneManager {
 
   /**
    * Set up the helmet:
-   * 1. Center model at origin (facing front)
+   * 1. Center model at origin
    * 2. Wrap in wrapper group
-   * 3. Position wrapper Z=-13.0 so face sits INSIDE the helmet cavity
-   * 4. Add dark face blocker inside wrapper as a dark lining
+   * 3. Position wrapper Y=+2.5 so eyes align perfectly
+   * 4. No face blocker sphere is added
    */
   _setupHelmet(model) {
     if (this.helmetWrapper) {
@@ -167,41 +143,27 @@ export class SceneManager {
 
     console.log(`[MARK3] Raw size: ${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)}`);
 
-    // Center model at origin (0,0,0 is now the geometric center of helmet)
+    // Center model at origin
     this.helmetModel.position.set(-center.x, -center.y, -center.z);
 
     // ── Step 2: Scale wrapper ──
     const maxDim = Math.max(size.x, size.y, size.z);
-    const desiredSize = 38; // Standard human head scale (38cm height/width wrapper)
+    const desiredSize = 38; // standard human head height/width scale
     const scaleFactor = desiredSize / maxDim;
 
     const wrapper = new THREE.Group();
     wrapper.add(this.helmetModel);
     wrapper.scale.setScalar(scaleFactor);
 
-    // Position: shift up slightly (+Y) and shift BACKWARD (-13.0cm on Z)
-    // so the tracked face is inside the helmet cavity, rather than in front.
+    // Align the eye slits slightly upwards relative to the head center pivot.
+    // The Z offset is 0 because the Z-pivot offset is handled programmatically in applyFaceMatrix.
     const scaledHeight = size.y * scaleFactor;
-    wrapper.position.set(0, scaledHeight * 0.05, -13.0);
+    wrapper.position.set(0, scaledHeight * 0.06, 0);
 
     this.helmetWrapper = wrapper;
     this.helmetRoot.add(wrapper);
 
-    // ── Step 3: Dark Inner Lining Blocker ──
-    // Placed inside the wrapper at (0, 0, 0), so it perfectly fills the interior cavity.
-    // Scales to be slightly smaller than the helmet itself.
-    const bw = size.x * 0.44;
-    const bh = size.y * 0.46;
-    const bd = size.z * 0.44;
-    this.faceBlocker.scale.set(bw, bh, bd);
-    this.faceBlocker.position.set(0, 0, 0);
-
-    if (this.faceBlocker.parent) {
-      this.faceBlocker.parent.remove(this.faceBlocker);
-    }
-    wrapper.add(this.faceBlocker);
-
-    console.log(`[MARK3] Helmet loaded. Scale: ${scaleFactor.toFixed(4)}, positioned Z=-13.0`);
+    console.log(`[MARK3] Helmet loaded. Scale: ${scaleFactor.toFixed(4)}`);
   }
 
   loadHelmetModel(url = "/iron-man_helmet_mk3.glb") {
@@ -224,6 +186,9 @@ export class SceneManager {
     this.renderer.setSize(videoWidth, videoHeight, false);
   }
 
+  /**
+   * Apply face transformation matrix with natural rotation pivot offset
+   */
   applyFaceMatrix(matrixData, timestamp) {
     if (!matrixData) return;
 
@@ -246,6 +211,7 @@ export class SceneManager {
       isNaN(quat.x) || isNaN(quat.y) || isNaN(quat.z) || isNaN(quat.w)
     ) return;
 
+    // Smooth position and rotation
     const sp = new THREE.Vector3().fromArray(
       this.posFilter.filter([pos.x, pos.y, pos.z], timestamp)
     );
@@ -253,11 +219,23 @@ export class SceneManager {
       this.quatFilter.filter([quat.x, quat.y, quat.z, quat.w], timestamp)
     ).normalize();
 
-    sp.add(this.positionOffset);
+    // ── Key Rotation Pivot Math ──
+    // MediaPipe tracks the face origin (nose bridge, Z=0).
+    // The head naturally rotates around a neck pivot located roughly 11cm behind the face and 4.5cm below the eyes.
+    // We calculate this pivot point in camera space by rotating the offset vector by the head's rotation quaternion.
+    const pivotOffset = new THREE.Vector3(0, -4.5, -11.0);
+    pivotOffset.applyQuaternion(sq);
+    const headCenter = sp.clone().add(pivotOffset);
 
-    this.helmetRoot.position.copy(sp);
+    // Apply manual offset adjustments (from sliders) in local face space
+    const userOffset = this.positionOffset.clone().applyQuaternion(sq);
+    headCenter.add(userOffset);
+
+    // Position the root at the head center, and apply the rotation
+    this.helmetRoot.position.copy(headCenter);
     this.helmetRoot.quaternion.copy(sq);
 
+    // Apply manual rotation offsets (from sliders)
     const offsetQuat = new THREE.Quaternion().setFromEuler(this.rotationOffset);
     this.helmetRoot.quaternion.multiply(offsetQuat);
 
