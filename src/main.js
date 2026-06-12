@@ -56,7 +56,7 @@ async function init() {
 
   // 2. Load the real GLB helmet model
   try {
-    await scene.loadHelmetModel("/iron_man_helmet.glb");
+    await scene.loadHelmetModel("/iron-man_helmet_mk3.glb");
     console.log("[MARK3] Helmet model loaded successfully");
     setLoading(50);
   } catch (err) {
