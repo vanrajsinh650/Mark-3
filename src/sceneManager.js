@@ -11,13 +11,16 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OneEuroFilterVec } from "./oneEuroFilter.js";
 
 // ─── Face Blocker ───────────────────────────────────────────────────────────
-// A VISIBLE dark sphere that hides the real face.
-// Must be large enough to cover the entire head from every angle.
+// A VISIBLE sphere that hides the real face behind the helmet.
+// Uses the same dark metallic red as the helmet so it blends in seamlessly.
+// Any part of this sphere visible through gaps looks like helmet surface.
 
 function createFaceBlocker() {
   const geo = new THREE.SphereGeometry(1, 48, 48);
-  const mat = new THREE.MeshBasicMaterial({
-    color: 0x080808,
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0x6b1515,       // Dark metallic red — matches Iron Man helmet
+    metalness: 0.7,
+    roughness: 0.35,
     side: THREE.FrontSide,
     depthWrite: true,
   });
@@ -179,17 +182,16 @@ export class SceneManager {
     this.helmetWrapper = wrapper;
     this.helmetRoot.add(wrapper);
 
-    // Face blocker: a LARGE dark sphere that completely covers the head.
-    // It must be big enough that no skin is visible from ANY angle.
-    // The helmet renders on top of it, so the blocker is only visible
-    // through gaps — where it looks like the dark helmet interior.
-    this.faceBlocker.scale.set(
-      12,  // width: ~24cm diameter — wider than a head
-      14,  // height: ~28cm diameter — taller than a head (forehead to chin)
-      11   // depth: ~22cm — front to back of head
-    );
-    // Position the blocker centered on the face, slightly up
-    this.faceBlocker.position.set(0, scaledHeight * 0.06, -1);
+    // Face blocker: sized to fit INSIDE the helmet shell.
+    // Slightly smaller than the helmet so it never protrudes past the edges.
+    // Its dark red metallic surface blends with the helmet — looks like
+    // the inner/back surface of the helmet shell from any angle.
+    const blockerW = size.x * scaleFactor * 0.48;
+    const blockerH = size.y * scaleFactor * 0.52;
+    const blockerD = size.z * scaleFactor * 0.46;
+    this.faceBlocker.scale.set(blockerW, blockerH, blockerD);
+    // Center it on the face, slightly up and back
+    this.faceBlocker.position.set(0, scaledHeight * 0.08, -0.5);
 
     console.log(`[MARK3] Loaded. Scale: ${scaleFactor.toFixed(4)}, desired: ${desiredSize}cm`);
   }
