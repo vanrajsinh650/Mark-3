@@ -1,48 +1,36 @@
 /**
  * sceneManager.js
  *
- * AR faceplate overlay — GOLD parts only:
- * - Scans all meshes in the GLB, keeps only gold/yellow ones
- * - Hides everything else (red, dark, grey parts)
- * - Faceplate is sized & positioned to stick flat on the front of the face
- * - Persists when face is briefly lost (hand blocking etc.)
+ * AR helmet overlay:
+ * - Helmet is rotated so the EXTERIOR faces the camera
+ * - User's face sits INSIDE the helmet cavity
+ * - Face blocker sphere hides webcam feed through any gaps
+ * - Helmet persists when face is briefly lost
+ * - DoubleSide rendering fixes broken model faces
  */
 
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OneEuroFilterVec } from "./oneEuroFilter.js";
 
-// ─── Colour detection helpers ───────────────────────────────────────────────
+// ─── Face Blocker ───────────────────────────────────────────────────────────
+// Sits inside the helmet to hide the webcam video through any gaps.
+// depthWrite: false = helmet always renders on top of this sphere.
 
-/**
- * Check if a material's base color is gold/yellow-ish.
- * We look at the RGB channels — gold has high R, medium-high G, low B.
- */
-function isGoldMaterial(mat) {
-  if (!mat || !mat.color) return false;
-  const r = mat.color.r;
-  const g = mat.color.g;
-  const b = mat.color.b;
-
-  // Gold/yellow detection:
-  // High red (>0.4), decent green (>0.2), low blue (<0.35)
-  // OR check if it has a metallic gold texture/map
-  const isGold = (r > 0.4 && g > 0.15 && b < 0.35 && r > b * 1.5);
-  // Also catch bright yellow: high R, high G, low B
-  const isYellow = (r > 0.5 && g > 0.4 && b < 0.3);
-  // Catch orange-gold
-  const isOrangeGold = (r > 0.5 && g > 0.1 && g < 0.6 && b < 0.15);
-
-  return isGold || isYellow || isOrangeGold;
-}
-
-/**
- * Check if any material on a mesh is gold/yellow
- */
-function meshHasGoldMaterial(mesh) {
-  if (!mesh.material) return false;
-  const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-  return mats.some(isGoldMaterial);
+function createFaceBlocker() {
+  const geo = new THREE.SphereGeometry(1, 48, 48);
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0x1a1a1a,        // Very dark — invisible through small gaps
+    metalness: 0.8,
+    roughness: 0.3,
+    side: THREE.FrontSide,
+    depthWrite: false,       // Never block helmet parts
+    depthTest: true,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.renderOrder = -1;    // Render FIRST, before helmet
+  mesh.name = "faceBlocker";
+  return mesh;
 }
 
 // ─── Scene Manager ──────────────────────────────────────────────────────────
@@ -73,6 +61,10 @@ export class SceneManager {
     this.helmetRoot.visible = false;
     this.scene.add(this.helmetRoot);
 
+    // Face blocker — hides webcam through gaps
+    this.faceBlocker = createFaceBlocker();
+    this.helmetRoot.add(this.faceBlocker);
+
     this.helmetModel = null;
     this.helmetWrapper = null;
 
@@ -85,7 +77,7 @@ export class SceneManager {
     this.scaleMultiplier = 1.0;
     this.rotationOffset = new THREE.Euler(0, 0, 0);
 
-    // Persistence: keep faceplate visible when face tracking is briefly lost
+    // Persistence
     this._faceDetected = false;
     this._lastFaceTime = 0;
     this._persistMs = 1500;
@@ -126,76 +118,42 @@ export class SceneManager {
   }
 
   /**
-   * Scan all meshes: keep ONLY gold/yellow parts, hide everything else.
-   * Log detailed info about every mesh for debugging.
+   * Force double-sided rendering + correct render order on all meshes.
+   * Log all part names for debugging.
    */
   _prepareModel(model) {
-    console.log("=== GLB HELMET PARTS — FULL SCAN ===");
-    const goldParts = [];
-    const hiddenParts = [];
-
+    console.log("=== GLB HELMET PARTS ===");
+    const parts = [];
     model.traverse((child) => {
       if (child.isMesh) {
-        const mats = Array.isArray(child.material)
-          ? child.material
-          : [child.material];
+        const name = child.name || "unnamed";
+        parts.push(name);
 
-        // Get colour info for logging
+        // Log color info
+        const mats = Array.isArray(child.material) ? child.material : [child.material];
         const colorInfo = mats.map((m) => {
-          if (m && m.color) {
-            return `rgb(${(m.color.r * 255).toFixed(0)},${(m.color.g * 255).toFixed(0)},${(m.color.b * 255).toFixed(0)}) hex=#${m.color.getHexString()}`;
-          }
+          if (m && m.color) return `#${m.color.getHexString()}`;
           return "no-color";
-        }).join(" | ");
+        }).join(", ");
+        console.log(`  mesh: "${name}" — colors: ${colorInfo}`);
 
-        const isGold = meshHasGoldMaterial(child);
-
-        if (isGold) {
-          // KEEP this mesh
-          goldParts.push(child.name || "unnamed");
-          console.log(`✅ KEEP  "${child.name}" — ${colorInfo}`);
-
-          mats.forEach((mat) => {
-            mat.side = THREE.DoubleSide;
-            mat.depthWrite = true;
-            mat.needsUpdate = true;
-          });
-          child.renderOrder = 1;
-          child.visible = true;
-        } else {
-          // HIDE this mesh
-          hiddenParts.push(child.name || "unnamed");
-          console.log(`❌ HIDE  "${child.name}" — ${colorInfo}`);
-          child.visible = false;
-        }
+        mats.forEach((mat) => {
+          mat.side = THREE.DoubleSide;
+          mat.depthWrite = true;
+          mat.needsUpdate = true;
+        });
+        child.renderOrder = 1; // Render AFTER face blocker
       }
     });
-
-    console.log(`\nKept ${goldParts.length} gold parts: ${goldParts.join(", ")}`);
-    console.log(`Hidden ${hiddenParts.length} non-gold parts: ${hiddenParts.join(", ")}`);
-    console.log("=====================================");
-
-    // If NO gold parts found, show ALL parts as fallback
-    if (goldParts.length === 0) {
-      console.warn("[MARK3] No gold parts detected! Showing all meshes as fallback.");
-      model.traverse((child) => {
-        if (child.isMesh) {
-          child.visible = true;
-          const mats = Array.isArray(child.material) ? child.material : [child.material];
-          mats.forEach((mat) => {
-            mat.side = THREE.DoubleSide;
-            mat.depthWrite = true;
-            mat.needsUpdate = true;
-          });
-          child.renderOrder = 1;
-        }
-      });
-    }
+    console.log(`Total: ${parts.length} meshes`);
+    console.log("========================");
   }
 
   /**
-   * Set up the loaded model — only gold faceplate parts.
-   * Sizes to cover the front of the face and sticks flat to it.
+   * Set up the helmet model:
+   * - Rotate 180° on Y so EXTERIOR faces camera
+   * - Scale to cover full head
+   * - Position face blocker inside to hide webcam
    */
   _setupHelmet(model) {
     if (this.helmetWrapper) {
@@ -205,47 +163,47 @@ export class SceneManager {
     this.helmetModel = model;
     this._prepareModel(this.helmetModel);
 
-    // Bounding box of ONLY visible (gold) parts
-    const box = new THREE.Box3();
-    this.helmetModel.traverse((child) => {
-      if (child.isMesh && child.visible) {
-        const meshBox = new THREE.Box3().setFromObject(child);
-        box.union(meshBox);
-      }
-    });
-
-    // Fallback if box is empty
-    if (box.isEmpty()) {
-      box.setFromObject(this.helmetModel);
-    }
-
+    // Bounding box
+    const box = new THREE.Box3().setFromObject(this.helmetModel);
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
 
-    console.log(`[MARK3] Gold parts size: ${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)}`);
-    console.log(`[MARK3] Gold parts center: ${center.x.toFixed(2)}, ${center.y.toFixed(2)}, ${center.z.toFixed(2)}`);
+    console.log(`[MARK3] Raw size: ${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)}`);
 
-    // Center the gold parts at origin
+    // Center the model at origin
     this.helmetModel.position.set(-center.x, -center.y, -center.z);
 
-    // Scale so the faceplate covers the face (~30cm wide for a face)
+    // *** KEY FIX: Rotate 180° on Y axis ***
+    // The model's front (exterior) was facing AWAY from camera.
+    // This flips it so the shiny outside faces the camera,
+    // and the hollow inside faces the user's real face.
+    this.helmetModel.rotation.y = Math.PI;
+
+    // Scale to ~38cm to fully cover head
     const maxDim = Math.max(size.x, size.y, size.z);
-    const desiredSize = 32; // Slightly smaller than full helmet — just faceplate
+    const desiredSize = 38;
     const scaleFactor = desiredSize / maxDim;
 
     const wrapper = new THREE.Group();
     wrapper.add(this.helmetModel);
     wrapper.scale.setScalar(scaleFactor);
 
-    // Position: move slightly forward (toward camera) so it sits ON the face
-    // and shift up slightly so it centers on the nose/eyes area
+    // Shift up so eye slits align with tracked face center
     const scaledHeight = size.y * scaleFactor;
-    wrapper.position.set(0, scaledHeight * 0.05, 1.5);
+    wrapper.position.set(0, scaledHeight * 0.12, 0);
 
     this.helmetWrapper = wrapper;
     this.helmetRoot.add(wrapper);
 
-    console.log(`[MARK3] Faceplate loaded. Scale: ${scaleFactor.toFixed(4)}`);
+    // Face blocker: dark sphere sitting inside the helmet cavity.
+    // Covers the webcam feed through any gaps between helmet pieces.
+    const bw = size.x * scaleFactor * 0.48;
+    const bh = size.y * scaleFactor * 0.52;
+    const bd = size.z * scaleFactor * 0.46;
+    this.faceBlocker.scale.set(bw, bh, bd);
+    this.faceBlocker.position.set(0, scaledHeight * 0.06, 0);
+
+    console.log(`[MARK3] Helmet loaded. Scale: ${scaleFactor.toFixed(4)}, rotated 180° on Y`);
   }
 
   loadHelmetModel(url = "/iron-man_helmet_mk3.glb") {
@@ -313,8 +271,7 @@ export class SceneManager {
   }
 
   /**
-   * Called when face is NOT detected — keep faceplate visible for a while
-   * so it doesn't disappear when a hand briefly blocks the face.
+   * Called when face is NOT detected — keep helmet visible briefly
    */
   onFaceLost() {
     this._faceDetected = false;
