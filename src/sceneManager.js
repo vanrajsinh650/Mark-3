@@ -120,8 +120,11 @@ export class SceneManager {
    * Force double-sided rendering + correct render order on all model meshes
    */
   _prepareModel(model) {
+    console.log("=== GLB HELMET PARTS LIST ===");
+    const parts = [];
     model.traverse((child) => {
       if (child.isMesh) {
+        parts.push(child.name || "unnamed_mesh");
         if (child.material) {
           const mats = Array.isArray(child.material) ? child.material : [child.material];
           mats.forEach((mat) => {
@@ -133,6 +136,8 @@ export class SceneManager {
         child.renderOrder = 1; // Render AFTER face blocker
       }
     });
+    console.log(parts.join("\n"));
+    console.log("=============================");
   }
 
   /**
