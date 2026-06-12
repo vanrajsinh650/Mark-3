@@ -1,29 +1,28 @@
 /**
  * sceneManager.js
  *
- * AR helmet overlay — loads real GLB model, positions it precisely
- * on the face, and uses an occluder to hide the real face.
+ * AR helmet overlay with proper face hiding.
+ * Uses a VISIBLE dark sphere to block the real face from showing through.
  */
 
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OneEuroFilterVec } from "./oneEuroFilter.js";
 
-// ─── Face Occluder ──────────────────────────────────────────────────────────
-// Invisible mesh that blocks the real face from showing through the helmet.
-// Writes to depth buffer only (no color), so anything behind it is hidden.
+// ─── Face Blocker ───────────────────────────────────────────────────────────
+// A VISIBLE dark sphere that sits inside the helmet and hides the real face.
+// Unlike a depth-only occluder, this actually renders dark pixels that cover
+// the webcam feed (which is an HTML element behind the Three.js canvas).
 
-function createFaceOccluder() {
-  // Use a box-ish ellipsoid that approximates a full head volume
+function createFaceBlocker() {
   const geo = new THREE.SphereGeometry(1, 32, 32);
   const mat = new THREE.MeshBasicMaterial({
-    colorWrite: false,
-    depthWrite: true,
-    side: THREE.DoubleSide,
+    color: 0x0a0a0a,      // Very dark — looks like helmet interior
+    side: THREE.FrontSide,
   });
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.renderOrder = -1;
-  mesh.name = "faceOccluder";
+  mesh.renderOrder = -1;  // Render BEFORE the helmet
+  mesh.name = "faceBlocker";
   return mesh;
 }
 
@@ -31,7 +30,6 @@ function createFaceOccluder() {
 
 export class SceneManager {
   constructor(canvas) {
-    // Renderer
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       alpha: true,
@@ -42,48 +40,42 @@ export class SceneManager {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.3;
 
-    // Scene
     this.scene = new THREE.Scene();
 
-    // Camera
     this.camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 1000);
     this.camera.position.set(0, 0, 0);
     this.scene.add(this.camera);
 
-    // Debug
     this._debugFrameCount = 0;
 
-    // Lighting
     this._setupLights();
 
-    // Helmet root — face tracking moves this entire group
+    // Helmet root — face tracking moves this
     this.helmetRoot = new THREE.Group();
     this.helmetRoot.visible = false;
     this.scene.add(this.helmetRoot);
 
-    // Face occluder
-    this.occluder = createFaceOccluder();
-    this.helmetRoot.add(this.occluder);
+    // Face blocker — VISIBLE dark sphere that hides the real face
+    this.faceBlocker = createFaceBlocker();
+    this.helmetRoot.add(this.faceBlocker);
 
-    // The loaded model
     this.helmetModel = null;
     this.helmetWrapper = null;
 
-    // One Euro Filters for smooth tracking
+    // Filters
     this.posFilter = new OneEuroFilterVec(3, 30, 0.8, 0.5, 1.0);
     this.quatFilter = new OneEuroFilterVec(4, 30, 0.5, 0.3, 1.0);
 
-    // Offset tweaks from UI sliders
+    // Offsets
     this.positionOffset = new THREE.Vector3(0, 0, 0);
     this.scaleMultiplier = 1.0;
     this.rotationOffset = new THREE.Euler(0, 0, 0);
 
-    // GLTF loader
     this.gltfLoader = new GLTFLoader();
   }
 
   _setupLights() {
-    // Strong front key light
+    // Front key light
     const keyLight = new THREE.DirectionalLight(0xffffff, 4.0);
     keyLight.position.set(3, 4, 5);
     this.camera.add(keyLight);
@@ -94,7 +86,7 @@ export class SceneManager {
     this.camera.add(fillLight);
 
     // Right fill
-    const rightFill = new THREE.DirectionalLight(0xffccaa, 1.5);
+    const rightFill = new THREE.DirectionalLight(0xffccaa, 1.8);
     rightFill.position.set(4, 0, 3);
     this.camera.add(rightFill);
 
@@ -113,93 +105,82 @@ export class SceneManager {
     backLight.position.set(0, 2, -5);
     this.camera.add(backLight);
 
-    // Ambient
+    // Hemisphere + ambient
     const hemiLight = new THREE.HemisphereLight(0xffffff, 0x333333, 1.8);
     this.scene.add(hemiLight);
 
-    // Environment-like ambient from all sides
     const ambLight = new THREE.AmbientLight(0xffffff, 0.5);
     this.scene.add(ambLight);
   }
 
   /**
-   * Load the helmet GLB model.
-   *
-   * The critical logic here:
-   * - MediaPipe gives us the face center (roughly at nose bridge between the eyes)
-   * - We need to position the helmet so its eye-slit area aligns with that point
-   * - After bounding-box centering, the geometric center of the helmet is at origin
-   * - But the "eye level" of a helmet is BELOW the geometric center (because the
-   *   dome/top of the helmet raises the center above the eye slits)
-   * - So we need to SHIFT THE MODEL UP so the eye slits align with the tracked point
+   * Load helmet GLB and position it properly on the face.
    */
-  loadHelmetModel(url = "/iron-man_helmet_mk3.glb") {
+  loadHelmetModel(url = "/iron_man_helmet.glb") {
     return new Promise((resolve, reject) => {
       this.gltfLoader.load(
         url,
         (gltf) => {
-          // Remove previous
           if (this.helmetWrapper) {
             this.helmetRoot.remove(this.helmetWrapper);
           }
 
           this.helmetModel = gltf.scene;
 
-          // Get bounding box
+          // Make all helmet meshes render AFTER the face blocker
+          this.helmetModel.traverse((child) => {
+            if (child.isMesh) {
+              child.renderOrder = 1;
+            }
+          });
+
+          // Bounding box
           const box = new THREE.Box3().setFromObject(this.helmetModel);
           const center = box.getCenter(new THREE.Vector3());
           const size = box.getSize(new THREE.Vector3());
 
-          console.log(`[MARK3] Model raw size: ${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)}`);
-          console.log(`[MARK3] Model raw center: ${center.x.toFixed(2)}, ${center.y.toFixed(2)}, ${center.z.toFixed(2)}`);
+          console.log(`[MARK3] Raw size: ${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)}`);
+          console.log(`[MARK3] Raw center: ${center.x.toFixed(2)}, ${center.y.toFixed(2)}, ${center.z.toFixed(2)}`);
 
-          // Center the model at origin
+          // Center at origin
           this.helmetModel.position.set(-center.x, -center.y, -center.z);
 
-          // Scale: make the helmet big enough to cover the entire head.
-          // A human head is ~22cm wide, ~25cm tall. The helmet should be
-          // BIGGER than that — ~35cm max dimension.
+          // Scale: helmet should be ~35cm to fully enclose a human head
           const maxDim = Math.max(size.x, size.y, size.z);
-          const desiredSize = 35; // cm — generous to fully enclose the head
+          const desiredSize = 35;
           const scaleFactor = desiredSize / maxDim;
 
-          // Create wrapper for the scaled/offset model
+          // Wrapper for scale + offset
           const wrapper = new THREE.Group();
           wrapper.add(this.helmetModel);
           wrapper.scale.setScalar(scaleFactor);
 
-          // KEY FIX: Shift the model UP so the eye slits align with the face center.
-          // The eye slits are roughly 30-35% down from the top of the helmet.
-          // After centering, the geometric center is at Y=0, but eyes are below that.
-          // So we push the model UP by ~20% of its scaled height.
+          // Shift UP so eye slits align with face center
           const scaledHeight = size.y * scaleFactor;
-          wrapper.position.set(0, scaledHeight * 0.18, 0);
+          wrapper.position.set(0, scaledHeight * 0.15, 0);
 
           this.helmetWrapper = wrapper;
           this.helmetRoot.add(wrapper);
 
-          // Configure the occluder to fully cover the face area.
-          // Make it a large ellipsoid that sits inside the helmet.
-          const occW = size.x * scaleFactor * 0.48; // slightly narrower than helmet
-          const occH = size.y * scaleFactor * 0.52; // tall enough to cover forehead to chin
-          const occD = size.z * scaleFactor * 0.45; // deep enough to hide the face
-          this.occluder.scale.set(occW, occH, occD);
-          // Position the occluder at the face center (slightly forward of helmet center)
-          this.occluder.position.set(0, scaledHeight * 0.05, 0);
+          // Face blocker: big enough to completely cover the face
+          // Make it slightly smaller than the helmet so it sits inside
+          const blockerW = size.x * scaleFactor * 0.45;
+          const blockerH = size.y * scaleFactor * 0.50;
+          const blockerD = size.z * scaleFactor * 0.42;
+          this.faceBlocker.scale.set(blockerW, blockerH, blockerD);
+          this.faceBlocker.position.set(0, scaledHeight * 0.08, 0);
 
-          console.log(`[MARK3] Helmet loaded. Scale: ${scaleFactor.toFixed(4)}, size: ${desiredSize}cm, yShift: ${(scaledHeight * 0.18).toFixed(2)}cm`);
-          console.log(`[MARK3] Occluder size: ${occW.toFixed(1)} x ${occH.toFixed(1)} x ${occD.toFixed(1)}`);
+          console.log(`[MARK3] Loaded. Scale: ${scaleFactor.toFixed(4)}, blocker: ${blockerW.toFixed(1)}x${blockerH.toFixed(1)}x${blockerD.toFixed(1)}`);
 
           resolve();
         },
         (progress) => {
           if (progress.total) {
-            const pct = Math.round((progress.loaded / progress.total) * 100);
-            console.log(`[MARK3] Loading helmet: ${pct}%`);
+            console.log(`[MARK3] Loading: ${Math.round((progress.loaded / progress.total) * 100)}%`);
           }
         },
         (err) => {
-          console.error("[MARK3] Failed to load helmet:", err);
+          console.error("[MARK3] Load failed:", err);
           reject(err);
         }
       );
@@ -207,63 +188,49 @@ export class SceneManager {
   }
 
   updateCameraForVideo(videoWidth, videoHeight) {
-    const aspect = videoWidth / videoHeight;
-    this.camera.aspect = aspect;
+    this.camera.aspect = videoWidth / videoHeight;
     this.camera.fov = 55;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(videoWidth, videoHeight, false);
   }
 
-  /**
-   * Apply the 4×4 facial transformation matrix from MediaPipe.
-   */
   applyFaceMatrix(matrixData, timestamp) {
     if (!matrixData) return;
 
     const m = new THREE.Matrix4().fromArray(matrixData);
-
     const pos = new THREE.Vector3();
     const quat = new THREE.Quaternion();
     const scale = new THREE.Vector3();
     m.decompose(pos, quat, scale);
 
-    // Debug
     this._debugFrameCount++;
     if (this._debugFrameCount % 60 === 1) {
-      console.log(`[MARK3] Face pos: x=${pos.x.toFixed(2)}, y=${pos.y.toFixed(2)}, z=${pos.z.toFixed(2)}`);
+      console.log(`[MARK3] Face: x=${pos.x.toFixed(2)}, y=${pos.y.toFixed(2)}, z=${pos.z.toFixed(2)}`);
     }
 
-    // Validate
     if (
       isNaN(pos.x) || isNaN(pos.y) || isNaN(pos.z) ||
       isNaN(quat.x) || isNaN(quat.y) || isNaN(quat.z) || isNaN(quat.w)
-    ) {
-      return;
-    }
+    ) return;
 
-    // Smooth
-    const smoothedPosArr = this.posFilter.filter([pos.x, pos.y, pos.z], timestamp);
-    const smoothedPos = new THREE.Vector3().fromArray(smoothedPosArr);
+    const sp = new THREE.Vector3().fromArray(
+      this.posFilter.filter([pos.x, pos.y, pos.z], timestamp)
+    );
+    const sq = new THREE.Quaternion().fromArray(
+      this.quatFilter.filter([quat.x, quat.y, quat.z, quat.w], timestamp)
+    ).normalize();
 
-    const smoothedQuatArr = this.quatFilter.filter([quat.x, quat.y, quat.z, quat.w], timestamp);
-    const smoothedQuat = new THREE.Quaternion().fromArray(smoothedQuatArr).normalize();
+    sp.add(this.positionOffset);
 
-    // Apply user offsets
-    smoothedPos.add(this.positionOffset);
+    this.helmetRoot.position.copy(sp);
+    this.helmetRoot.quaternion.copy(sq);
 
-    this.helmetRoot.position.copy(smoothedPos);
-    this.helmetRoot.quaternion.copy(smoothedQuat);
-
-    // Apply rotation offset
     const offsetQuat = new THREE.Quaternion().setFromEuler(this.rotationOffset);
     this.helmetRoot.quaternion.multiply(offsetQuat);
 
     this.helmetRoot.scale.setScalar(this.scaleMultiplier);
   }
 
-  /**
-   * Load a custom .glb/.gltf from a File object (drag-and-drop).
-   */
   loadCustomModel(file) {
     return new Promise((resolve, reject) => {
       const url = URL.createObjectURL(file);
@@ -275,6 +242,9 @@ export class SceneManager {
           }
 
           this.helmetModel = gltf.scene;
+          this.helmetModel.traverse((child) => {
+            if (child.isMesh) child.renderOrder = 1;
+          });
 
           const box = new THREE.Box3().setFromObject(this.helmetModel);
           const center = box.getCenter(new THREE.Vector3());
@@ -290,27 +260,23 @@ export class SceneManager {
           wrapper.scale.setScalar(scaleFactor);
 
           const scaledHeight = size.y * scaleFactor;
-          wrapper.position.set(0, scaledHeight * 0.18, 0);
+          wrapper.position.set(0, scaledHeight * 0.15, 0);
 
           this.helmetWrapper = wrapper;
           this.helmetRoot.add(wrapper);
 
-          // Occluder
-          this.occluder.scale.set(
-            size.x * scaleFactor * 0.48,
-            size.y * scaleFactor * 0.52,
-            size.z * scaleFactor * 0.45
+          this.faceBlocker.scale.set(
+            size.x * scaleFactor * 0.45,
+            size.y * scaleFactor * 0.50,
+            size.z * scaleFactor * 0.42
           );
-          this.occluder.position.set(0, scaledHeight * 0.05, 0);
+          this.faceBlocker.position.set(0, scaledHeight * 0.08, 0);
 
           URL.revokeObjectURL(url);
           resolve();
         },
         undefined,
-        (err) => {
-          URL.revokeObjectURL(url);
-          reject(err);
-        }
+        (err) => { URL.revokeObjectURL(url); reject(err); }
       );
     });
   }
