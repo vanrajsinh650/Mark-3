@@ -1,17 +1,32 @@
 /**
  * sceneManager.js
  *
- * Sets up the Three.js scene for AR helmet overlay:
+ * AR helmet overlay with real GLB model:
  *  - WebGL renderer composited over the webcam feed
- *  - Perspective camera matched to webcam FOV
- *  - Camera-relative PBR lighting
- *  - Loads real Iron Man Mark 3 helmet GLB model
+ *  - Loads real Iron Man Mark 3 helmet GLB
+ *  - Face occluder mesh to hide the real face behind the helmet
  *  - One Euro Filter for smooth face tracking
  */
 
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OneEuroFilterVec } from "./oneEuroFilter.js";
+
+// ─── Face Occluder ──────────────────────────────────────────────────────────
+// An invisible mesh shaped like a head that writes to the depth buffer
+// but not the color buffer. This hides the real face behind the helmet.
+
+function createFaceOccluder() {
+  // Ellipsoid approximating a human head
+  const geo = new THREE.SphereGeometry(1, 32, 32);
+  const mat = new THREE.MeshBasicMaterial({
+    colorWrite: false,   // Don't draw any color pixels
+    depthWrite: true,     // But DO write to depth buffer — blocks anything behind it
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.renderOrder = -1; // Render BEFORE the helmet
+  return mesh;
+}
 
 // ─── Scene Manager ──────────────────────────────────────────────────────────
 
@@ -26,7 +41,7 @@ export class SceneManager {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.2;
+    this.renderer.toneMappingExposure = 1.3;
 
     // Scene
     this.scene = new THREE.Scene();
@@ -36,25 +51,29 @@ export class SceneManager {
     this.camera.position.set(0, 0, 0);
     this.scene.add(this.camera);
 
-    // Debug frame counter
+    // Debug
     this._debugFrameCount = 0;
 
-    // Lighting (attached to camera so helmet is always lit)
+    // Lighting
     this._setupLights();
 
-    // Helmet group — everything attaches here, this gets moved by face tracking
+    // Helmet group — face tracking moves this
     this.helmetRoot = new THREE.Group();
-    this.helmetRoot.visible = false; // hidden until face detected
+    this.helmetRoot.visible = false;
     this.scene.add(this.helmetRoot);
+
+    // Face occluder — hides the real face
+    this.occluder = createFaceOccluder();
+    this.helmetRoot.add(this.occluder);
 
     // The loaded GLB model
     this.helmetModel = null;
 
-    // One Euro Filters for position and rotation smoothing
+    // One Euro Filters
     this.posFilter = new OneEuroFilterVec(3, 30, 0.8, 0.5, 1.0);
     this.quatFilter = new OneEuroFilterVec(4, 30, 0.5, 0.3, 1.0);
 
-    // Offset tweaks (adjustable from UI)
+    // Offset tweaks
     this.positionOffset = new THREE.Vector3(0, 0, 0);
     this.scaleMultiplier = 1.0;
     this.rotationOffset = new THREE.Euler(0, 0, 0);
@@ -64,60 +83,93 @@ export class SceneManager {
   }
 
   _setupLights() {
-    // Front-right key light
-    const keyLight = new THREE.DirectionalLight(0xffffff, 3.5);
+    // Strong front key light
+    const keyLight = new THREE.DirectionalLight(0xffffff, 4.0);
     keyLight.position.set(3, 4, 5);
     this.camera.add(keyLight);
 
-    // Left fill light
-    const fillLight = new THREE.DirectionalLight(0xaaccff, 2.0);
+    // Left fill
+    const fillLight = new THREE.DirectionalLight(0xaaccff, 2.2);
     fillLight.position.set(-3, 2, 3);
     this.camera.add(fillLight);
 
-    // Bottom bounce light
-    const bounceLight = new THREE.DirectionalLight(0xffaa44, 1.2);
+    // Bottom bounce
+    const bounceLight = new THREE.DirectionalLight(0xffaa44, 1.5);
     bounceLight.position.set(0, -4, 2);
     this.camera.add(bounceLight);
 
-    // Top rim light
-    const rimLight = new THREE.DirectionalLight(0xffffff, 1.5);
+    // Top rim
+    const rimLight = new THREE.DirectionalLight(0xffffff, 2.0);
     rimLight.position.set(0, 5, -2);
     this.camera.add(rimLight);
 
-    // Ambient hemisphere
-    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x222222, 1.2);
+    // Back light for edge definition
+    const backLight = new THREE.DirectionalLight(0x8888ff, 1.0);
+    backLight.position.set(0, 2, -5);
+    this.camera.add(backLight);
+
+    // Ambient
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x222222, 1.5);
     this.scene.add(hemiLight);
   }
 
   /**
-   * Load the Iron Man helmet GLB from the public folder.
-   * Returns a promise that resolves when the model is ready.
+   * Load the Iron Man helmet GLB.
+   * After loading, auto-centers and scales it to cover a full face.
    */
-  loadHelmetModel(url = "/iron_man_helmet.glb") {
+  loadHelmetModel(url = "/iron-man_helmet_mk3.glb") {
     return new Promise((resolve, reject) => {
       this.gltfLoader.load(
         url,
         (gltf) => {
+          // Remove any previous model
+          if (this.helmetModel) {
+            this.helmetRoot.remove(this.helmetModel);
+          }
+
           this.helmetModel = gltf.scene;
 
-          // Auto-center the model
+          // Compute bounding box to center and scale
           const box = new THREE.Box3().setFromObject(this.helmetModel);
           const center = box.getCenter(new THREE.Vector3());
           const size = box.getSize(new THREE.Vector3());
 
-          // Center it at origin
-          this.helmetModel.position.sub(center);
+          console.log(
+            `[MARK3] Model raw size: ${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)}`
+          );
+          console.log(
+            `[MARK3] Model raw center: ${center.x.toFixed(2)}, ${center.y.toFixed(2)}, ${center.z.toFixed(2)}`
+          );
 
-          // Scale to head-size in MediaPipe metric space (~18-20cm)
+          // Center the model at origin
+          this.helmetModel.position.set(-center.x, -center.y, -center.z);
+
+          // Scale to cover the full face in MediaPipe metric space.
+          // MediaPipe face mesh is roughly 15-18cm wide, 20-24cm tall.
+          // We want the helmet to be bigger than the face — ~28cm across.
           const maxDim = Math.max(size.x, size.y, size.z);
-          const desiredSize = 20; // cm, roughly head-sized
+          const desiredSize = 28; // cm — large enough to fully cover the face
           const scaleFactor = desiredSize / maxDim;
-          this.helmetModel.scale.setScalar(scaleFactor);
 
-          this.helmetRoot.add(this.helmetModel);
+          // Create a wrapper group so we can offset after centering
+          const wrapper = new THREE.Group();
+          wrapper.add(this.helmetModel);
+          wrapper.scale.setScalar(scaleFactor);
+
+          this.helmetWrapper = wrapper;
+          this.helmetRoot.add(wrapper);
+
+          // Position the occluder to match the helmet interior
+          // Ellipsoid slightly smaller than the helmet, centered on the face
+          this.occluder.scale.set(
+            size.x * scaleFactor * 0.42,  // width
+            size.y * scaleFactor * 0.45,  // height
+            size.z * scaleFactor * 0.40   // depth
+          );
+          this.occluder.position.set(0, 0, 0);
 
           console.log(
-            `[MARK3] Helmet loaded: ${size.x.toFixed(1)} x ${size.y.toFixed(1)} x ${size.z.toFixed(1)}, scaled by ${scaleFactor.toFixed(3)}`
+            `[MARK3] Helmet loaded. Scale factor: ${scaleFactor.toFixed(4)}, desired: ${desiredSize}cm`
           );
 
           resolve();
@@ -129,16 +181,13 @@ export class SceneManager {
           }
         },
         (err) => {
-          console.error("[MARK3] Failed to load helmet model:", err);
+          console.error("[MARK3] Failed to load helmet:", err);
           reject(err);
         }
       );
     });
   }
 
-  /**
-   * Match the Three.js camera to the webcam resolution.
-   */
   updateCameraForVideo(videoWidth, videoHeight) {
     const aspect = videoWidth / videoHeight;
     this.camera.aspect = aspect;
@@ -160,7 +209,7 @@ export class SceneManager {
     const scale = new THREE.Vector3();
     m.decompose(pos, quat, scale);
 
-    // Debug log every 60 frames
+    // Debug log
     this._debugFrameCount++;
     if (this._debugFrameCount % 60 === 1) {
       console.log(
@@ -176,14 +225,14 @@ export class SceneManager {
       return;
     }
 
-    // Smooth position and rotation
+    // Smooth
     const smoothedPosArr = this.posFilter.filter([pos.x, pos.y, pos.z], timestamp);
     const smoothedPos = new THREE.Vector3().fromArray(smoothedPosArr);
 
     const smoothedQuatArr = this.quatFilter.filter([quat.x, quat.y, quat.z, quat.w], timestamp);
     const smoothedQuat = new THREE.Quaternion().fromArray(smoothedQuatArr).normalize();
 
-    // Apply offsets
+    // Apply user offsets
     smoothedPos.add(this.positionOffset);
 
     this.helmetRoot.position.copy(smoothedPos);
@@ -205,9 +254,8 @@ export class SceneManager {
       this.gltfLoader.load(
         url,
         (gltf) => {
-          // Remove previous model
           if (this.helmetModel) {
-            this.helmetRoot.remove(this.helmetModel);
+            this.helmetRoot.remove(this.helmetWrapper || this.helmetModel);
           }
 
           this.helmetModel = gltf.scene;
@@ -216,13 +264,24 @@ export class SceneManager {
           const center = box.getCenter(new THREE.Vector3());
           const size = box.getSize(new THREE.Vector3());
           const maxDim = Math.max(size.x, size.y, size.z);
-          const desiredSize = 20;
+          const desiredSize = 28;
           const scaleFactor = desiredSize / maxDim;
 
-          this.helmetModel.position.sub(center);
-          this.helmetModel.scale.setScalar(scaleFactor);
+          this.helmetModel.position.set(-center.x, -center.y, -center.z);
 
-          this.helmetRoot.add(this.helmetModel);
+          const wrapper = new THREE.Group();
+          wrapper.add(this.helmetModel);
+          wrapper.scale.setScalar(scaleFactor);
+
+          this.helmetWrapper = wrapper;
+          this.helmetRoot.add(wrapper);
+
+          // Update occluder
+          this.occluder.scale.set(
+            size.x * scaleFactor * 0.42,
+            size.y * scaleFactor * 0.45,
+            size.z * scaleFactor * 0.40
+          );
 
           URL.revokeObjectURL(url);
           resolve();
