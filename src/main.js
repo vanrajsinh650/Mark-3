@@ -1,12 +1,11 @@
 /**
  * main.js
  *
- * Orchestrates the entire AR helmet pipeline:
- *  1. Show loading screen
- *  2. Initialise FaceTracker (MediaPipe WASM + webcam)
- *  3. Initialise SceneManager (Three.js scene)
- *  4. Per-frame: get face matrix → smooth with One Euro Filter → apply to helmet → render
- *  5. Wire up HUD controls
+ * Clean AR helmet pipeline:
+ *  1. Load GLB helmet model
+ *  2. Start webcam + face tracking
+ *  3. Per-frame: face matrix → helmet position → render
+ *  4. Minimal controls: snapshot, record, sliders
  */
 
 import "./style.css";
@@ -16,23 +15,16 @@ import { SceneManager } from "./sceneManager.js";
 // ─── DOM refs ────────────────────────────────────────────────────────────────
 const loadingScreen = document.getElementById("loading-screen");
 const loadingBar = document.getElementById("loading-bar");
-const hud = document.getElementById("hud");
 const webcamEl = document.getElementById("webcam");
 const canvasEl = document.getElementById("three-canvas");
-const statusDot = document.getElementById("status-dot");
-const statusText = document.getElementById("status-text");
-const fpsDisplay = document.getElementById("fps-display");
-const faceStatus = document.getElementById("face-status");
-const faceCoords = document.getElementById("face-coords");
 
-// Buttons
 const btnSnapshot = document.getElementById("btn-snapshot");
 const btnRecord = document.getElementById("btn-record");
 const btnSliders = document.getElementById("btn-sliders");
-const btnResetModel = document.getElementById("btn-reset-model");
 const sliderPanel = document.getElementById("slider-panel");
+const recIndicator = document.getElementById("rec-indicator");
+const dropZone = document.getElementById("drop-zone");
 
-// Sliders
 const offsetX = document.getElementById("offset-x");
 const offsetY = document.getElementById("offset-y");
 const offsetZ = document.getElementById("offset-z");
@@ -40,18 +32,9 @@ const rotateX = document.getElementById("rotate-x");
 const rotateY = document.getElementById("rotate-y");
 const helmetScale = document.getElementById("helmet-scale");
 
-// Finish swatches
-const finishSwatches = document.querySelectorAll(".finish-swatch");
-
-// Drop zone
-const dropZone = document.getElementById("drop-zone");
-
 // ─── Globals ─────────────────────────────────────────────────────────────────
 let tracker, scene;
 let cameraReady = false;
-let lastFrameTime = performance.now();
-let frameCount = 0;
-let fps = 0;
 
 // Recording state
 let mediaRecorder = null;
@@ -69,45 +52,47 @@ async function init() {
 
   // 1. Create SceneManager
   scene = new SceneManager(canvasEl);
-  setLoading(30);
+  setLoading(20);
 
-  // 2. Create & init FaceTracker
+  // 2. Load the real GLB helmet model
+  try {
+    await scene.loadHelmetModel("/iron_man_helmet.glb");
+    console.log("[MARK3] Helmet model loaded successfully");
+    setLoading(50);
+  } catch (err) {
+    console.error("[MARK3] Failed to load helmet:", err);
+  }
+
+  // 3. Create & init FaceTracker
   tracker = new FaceTracker();
-
-  statusText.textContent = "LOADING AI MODEL...";
   await tracker.init();
-  setLoading(60);
+  setLoading(70);
 
-  // 3. Start webcam
-  statusText.textContent = "REQUESTING CAMERA...";
+  // 4. Start webcam
   try {
     await tracker.start(webcamEl);
     cameraReady = true;
-    statusDot.classList.add("active");
-    statusText.textContent = "SYSTEM ONLINE";
     setLoading(90);
   } catch (err) {
-    statusText.textContent = "CAMERA ACCESS DENIED";
     console.error("Camera error:", err);
     return;
   }
 
-  // 4. Match Three.js camera to webcam dimensions
+  // 5. Match Three.js camera to webcam
   if (webcamEl.videoWidth && webcamEl.videoHeight) {
     scene.updateCameraForVideo(webcamEl.videoWidth, webcamEl.videoHeight);
   }
 
-  // 5. Hook up face result callback
+  // 6. Hook up face result callback
   tracker.onResult = onFaceResult;
 
-  // 6. Start render loop
+  // 7. Start render loop
   renderLoop();
 
-  // 7. Reveal HUD, hide loading
+  // 8. Hide loading screen
   setLoading(100);
   setTimeout(() => {
     loadingScreen.classList.add("hidden");
-    hud.classList.add("visible");
   }, 400);
 }
 
@@ -125,20 +110,13 @@ function onFaceResult(results, videoWidth, videoHeight) {
       results.facialTransformationMatrixes &&
       results.facialTransformationMatrixes.length > 0
     ) {
-      faceStatus.textContent = "FACE: LOCKED";
-
       const matData = results.facialTransformationMatrixes[0].data;
       const timestamp = performance.now() / 1000;
 
       scene.applyFaceMatrix(matData, timestamp);
       scene.helmetRoot.visible = true;
-
-      const pos = scene.helmetRoot.position;
-      faceCoords.textContent = `POS: X:${pos.x.toFixed(1)} Y:${pos.y.toFixed(1)} Z:${pos.z.toFixed(1)}`;
     } else {
-      faceStatus.textContent = "FACE: SEARCHING...";
       scene.helmetRoot.visible = false;
-      faceCoords.textContent = "POS: --";
     }
   } catch (err) {
     console.error("Error in onFaceResult:", err);
@@ -152,25 +130,13 @@ function renderLoop() {
   } catch (err) {
     console.error("Render loop error:", err);
   }
-
-  // FPS counter
-  frameCount++;
-  const now = performance.now();
-  if (now - lastFrameTime >= 1000) {
-    fps = frameCount;
-    frameCount = 0;
-    lastFrameTime = now;
-    fpsDisplay.textContent = `FPS: ${fps}`;
-  }
-
   requestAnimationFrame(renderLoop);
 }
 
-// ─── HUD Controls ────────────────────────────────────────────────────────────
+// ─── Controls ────────────────────────────────────────────────────────────────
 
 // Snapshot
 btnSnapshot.addEventListener("click", () => {
-  // Composite webcam + three.js overlay
   const compositeCanvas = document.createElement("canvas");
   compositeCanvas.width = webcamEl.videoWidth;
   compositeCanvas.height = webcamEl.videoHeight;
@@ -182,7 +148,7 @@ btnSnapshot.addEventListener("click", () => {
   ctx.drawImage(webcamEl, -compositeCanvas.width, 0, compositeCanvas.width, compositeCanvas.height);
   ctx.restore();
 
-  // Draw three.js canvas on top (also mirrored already via CSS, so draw mirrored)
+  // Draw Three.js canvas (mirrored)
   ctx.save();
   ctx.scale(-1, 1);
   ctx.drawImage(canvasEl, -compositeCanvas.width, 0, compositeCanvas.width, compositeCanvas.height);
@@ -194,14 +160,11 @@ btnSnapshot.addEventListener("click", () => {
   link.href = compositeCanvas.toDataURL("image/png");
   link.click();
 
-  // Flash effect
   btnSnapshot.classList.add("active");
   setTimeout(() => btnSnapshot.classList.remove("active"), 300);
 });
 
 // Record
-const recIndicator = document.getElementById("rec-indicator");
-
 btnRecord.addEventListener("click", () => {
   if (!isRecording) {
     startRecording();
@@ -211,7 +174,6 @@ btnRecord.addEventListener("click", () => {
 });
 
 function startRecording() {
-  // Create a composite canvas stream
   const compositeCanvas = document.createElement("canvas");
   compositeCanvas.width = webcamEl.videoWidth;
   compositeCanvas.height = webcamEl.videoHeight;
@@ -290,36 +252,6 @@ helmetScale.addEventListener("input", () => {
   scene.scaleMultiplier = parseFloat(helmetScale.value);
 });
 
-// Reset model
-btnResetModel.addEventListener("click", () => {
-  scene.useProceduralHelmet();
-  // Reset filters
-  scene.posFilter.reset();
-  scene.quatFilter.reset();
-
-  // Reset offsets
-  scene.positionOffset.set(0, 0, 0);
-  scene.rotationOffset.set(0, 0, 0);
-  scene.scaleMultiplier = 1.0;
-
-  // Reset UI sliders
-  offsetX.value = "0";
-  offsetY.value = "0";
-  offsetZ.value = "0";
-  rotateX.value = "0";
-  rotateY.value = "0";
-  helmetScale.value = "1.0";
-});
-
-// Finish presets
-finishSwatches.forEach((swatch) => {
-  swatch.addEventListener("click", () => {
-    finishSwatches.forEach((s) => s.classList.remove("active"));
-    swatch.classList.add("active");
-    scene.setFinishPreset(swatch.dataset.finish);
-  });
-});
-
 // ─── Drag & Drop custom model ────────────────────────────────────────────────
 document.addEventListener("dragover", (e) => {
   e.preventDefault();
@@ -346,15 +278,10 @@ document.addEventListener("drop", async (e) => {
     return;
   }
 
-  statusText.textContent = "LOADING MODEL...";
   try {
     await scene.loadCustomModel(file);
-    statusText.textContent = "CUSTOM MODEL LOADED";
-    setTimeout(() => {
-      statusText.textContent = "SYSTEM ONLINE";
-    }, 2000);
+    console.log("[MARK3] Custom model loaded");
   } catch (err) {
-    statusText.textContent = "MODEL LOAD FAILED";
     console.error("Model load error:", err);
   }
 });
@@ -369,5 +296,4 @@ window.addEventListener("resize", () => {
 // ─── Boot ────────────────────────────────────────────────────────────────────
 init().catch((err) => {
   console.error("Initialisation failed:", err);
-  statusText.textContent = "INIT FAILED";
 });

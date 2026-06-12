@@ -12,9 +12,7 @@
 :root {
   --hud-blue: #00d4ff;
   --hud-blue-dim: #00d4ff44;
-  --hud-gold: #ffaa00;
   --hud-red: #ff2244;
-  --hud-bg: rgba(5, 10, 20, 0.75);
   --hud-glass: rgba(10, 20, 40, 0.55);
   --hud-border: rgba(0, 212, 255, 0.3);
   --hud-text: #e0f0ff;
@@ -50,7 +48,7 @@ html, body {
   width: 100% !important;
   height: 100% !important;
   object-fit: cover;
-  transform: scaleX(-1); /* mirror */
+  transform: scaleX(-1);
   z-index: 1;
 }
 
@@ -62,7 +60,7 @@ html, body {
   height: 100% !important;
   object-fit: cover;
   pointer-events: none;
-  transform: scaleX(-1); /* mirror to match webcam */
+  transform: scaleX(-1);
   z-index: 2;
 }
 
@@ -115,220 +113,87 @@ html, body {
 .loading-bar {
   height: 100%;
   width: 0%;
-  background: linear-gradient(90deg, var(--hud-blue), var(--hud-gold));
+  background: linear-gradient(90deg, var(--hud-blue), #ffaa00);
   border-radius: 2px;
   transition: width 0.3s ease;
 }
 
-/* ─── HUD Overlay ───────────────────────────────────────────────────────── */
-#hud {
+/* ─── Minimal Floating Controls ─────────────────────────────────────────── */
+#controls {
   position: fixed;
-  inset: 0;
-  z-index: 10;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.5s ease;
-}
-
-#hud.visible {
-  opacity: 1;
-}
-
-/* ─── Corner brackets (Stark HUD style) ─────────────────────────────────── */
-.hud-corner {
-  position: absolute;
-  width: 60px;
-  height: 60px;
-  pointer-events: none;
-}
-
-.hud-corner::before,
-.hud-corner::after {
-  content: '';
-  position: absolute;
-  background: var(--hud-blue);
-  opacity: 0.5;
-}
-
-.hud-corner.top-left { top: 20px; left: 20px; }
-.hud-corner.top-left::before { top: 0; left: 0; width: 30px; height: 2px; }
-.hud-corner.top-left::after { top: 0; left: 0; width: 2px; height: 30px; }
-
-.hud-corner.top-right { top: 20px; right: 20px; }
-.hud-corner.top-right::before { top: 0; right: 0; width: 30px; height: 2px; }
-.hud-corner.top-right::after { top: 0; right: 0; width: 2px; height: 30px; }
-
-.hud-corner.bottom-left { bottom: 20px; left: 20px; }
-.hud-corner.bottom-left::before { bottom: 0; left: 0; width: 30px; height: 2px; }
-.hud-corner.bottom-left::after { bottom: 0; left: 0; width: 2px; height: 30px; }
-
-.hud-corner.bottom-right { bottom: 20px; right: 20px; }
-.hud-corner.bottom-right::before { bottom: 0; right: 0; width: 30px; height: 2px; }
-.hud-corner.bottom-right::after { bottom: 0; right: 0; width: 2px; height: 30px; }
-
-/* ─── Status bar (top) ──────────────────────────────────────────────────── */
-.hud-status {
-  position: absolute;
-  top: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-family: var(--font-display);
-  font-size: 0.7rem;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  opacity: 0.7;
-}
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--hud-red);
-  box-shadow: 0 0 8px var(--hud-red);
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-.status-dot.active {
-  background: #00ff88;
-  box-shadow: 0 0 8px #00ff88;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
-}
-
-/* ─── Control Panel (right side) ────────────────────────────────────────── */
-.hud-panel {
-  position: absolute;
-  right: 24px;
+  right: 16px;
   top: 50%;
   transform: translateY(-50%);
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  pointer-events: auto;
+  gap: 10px;
+  z-index: 20;
 }
 
-.hud-btn {
-  width: 48px;
-  height: 48px;
+.ctrl-btn {
+  width: 44px;
+  height: 44px;
   border: 1px solid var(--hud-border);
   border-radius: var(--hud-radius);
   background: var(--hud-glass);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   color: var(--hud-blue);
-  font-family: var(--font-display);
   font-size: 1.1rem;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.25s ease;
-  position: relative;
 }
 
-.hud-btn:hover {
+.ctrl-btn:hover {
   background: rgba(0, 212, 255, 0.15);
   border-color: var(--hud-blue);
   box-shadow: 0 0 20px var(--hud-blue-dim);
   transform: scale(1.08);
 }
 
-.hud-btn:active {
+.ctrl-btn:active {
   transform: scale(0.95);
 }
 
-.hud-btn.active {
+.ctrl-btn.active {
   background: rgba(0, 212, 255, 0.25);
   border-color: var(--hud-blue);
   box-shadow: 0 0 15px var(--hud-blue-dim), inset 0 0 10px var(--hud-blue-dim);
 }
 
-.hud-btn .tooltip {
-  position: absolute;
-  right: calc(100% + 12px);
-  top: 50%;
-  transform: translateY(-50%);
-  white-space: nowrap;
-  font-family: var(--font-body);
-  font-size: 0.8rem;
-  color: var(--hud-text);
-  background: var(--hud-bg);
-  border: 1px solid var(--hud-border);
-  border-radius: 6px;
-  padding: 4px 10px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.2s ease;
+/* ─── Recording indicator ───────────────────────────────────────────────── */
+.recording-indicator {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-size: 0.75rem;
+  color: var(--hud-red);
+  letter-spacing: 0.1em;
+  z-index: 20;
 }
 
-.hud-btn:hover .tooltip {
-  opacity: 1;
-}
-
-/* ─── Finish Preset Selector ────────────────────────────────────────────── */
-.finish-panel {
-  position: absolute;
-  left: 24px;
-  top: 50%;
-  transform: translateY(-50%);
+.recording-indicator.active {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-  pointer-events: auto;
 }
 
-.finish-swatch {
-  width: 36px;
-  height: 36px;
+.rec-dot {
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.15);
-  cursor: pointer;
-  transition: all 0.25s ease;
-  position: relative;
+  background: var(--hud-red);
+  animation: pulse 1s ease-in-out infinite;
 }
 
-.finish-swatch:hover {
-  transform: scale(1.15);
-  border-color: var(--hud-blue);
-  box-shadow: 0 0 15px var(--hud-blue-dim);
-}
-
-.finish-swatch.active {
-  border-color: var(--hud-blue);
-  box-shadow: 0 0 12px var(--hud-blue-dim);
-}
-
-.finish-swatch.classic { background: linear-gradient(135deg, #8b0000 50%, #daa520 50%); }
-.finish-swatch.stealth { background: linear-gradient(135deg, #2a2a2a 50%, #4a4a4a 50%); }
-.finish-swatch.titanium { background: linear-gradient(135deg, #888 50%, #aaa 50%); }
-.finish-swatch.carbon { background: linear-gradient(135deg, #111 50%, #333 50%); }
-
-.finish-swatch .tooltip {
-  position: absolute;
-  left: calc(100% + 12px);
-  top: 50%;
-  transform: translateY(-50%);
-  white-space: nowrap;
-  font-family: var(--font-body);
-  font-size: 0.8rem;
-  color: var(--hud-text);
-  background: var(--hud-bg);
-  border: 1px solid var(--hud-border);
-  border-radius: 6px;
-  padding: 4px 10px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.2s ease;
-}
-
-.finish-swatch:hover .tooltip {
-  opacity: 1;
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }
 
 /* ─── Drop Zone ─────────────────────────────────────────────────────────── */
@@ -356,58 +221,10 @@ html, body {
   text-shadow: 0 0 20px var(--hud-blue);
 }
 
-/* ─── Bottom info bar ───────────────────────────────────────────────────── */
-.hud-info-bar {
-  position: absolute;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  font-family: var(--font-display);
-  font-size: 0.65rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  opacity: 0.5;
-}
-
-.hud-info-bar span {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-/* ─── Recording indicator ───────────────────────────────────────────────── */
-.recording-indicator {
-  position: absolute;
-  top: 24px;
-  right: 90px;
-  display: none;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--font-display);
-  font-size: 0.75rem;
-  color: var(--hud-red);
-  letter-spacing: 0.1em;
-}
-
-.recording-indicator.active {
-  display: flex;
-}
-
-.rec-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--hud-red);
-  animation: pulse 1s ease-in-out infinite;
-}
-
-/* ─── Slider panel (for fine-tuning) ────────────────────────────────────── */
+/* ─── Slider panel ──────────────────────────────────────────────────────── */
 .slider-panel {
-  position: absolute;
-  bottom: 70px;
+  position: fixed;
+  bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
   background: var(--hud-glass);
@@ -416,11 +233,11 @@ html, body {
   border: 1px solid var(--hud-border);
   border-radius: var(--hud-radius);
   padding: 16px 24px;
-  pointer-events: auto;
   display: none;
   flex-direction: column;
   gap: 10px;
   min-width: 320px;
+  z-index: 20;
 }
 
 .slider-panel.visible {
@@ -446,10 +263,8 @@ html, body {
 
 /* ─── Responsive ────────────────────────────────────────────────────────── */
 @media (max-width: 600px) {
-  .hud-panel { right: 10px; }
-  .finish-panel { left: 10px; }
-  .hud-btn { width: 40px; height: 40px; font-size: 0.9rem; }
-  .finish-swatch { width: 30px; height: 30px; }
+  #controls { right: 8px; }
+  .ctrl-btn { width: 38px; height: 38px; font-size: 0.9rem; }
   .slider-panel { min-width: 260px; padding: 12px 16px; }
   .loading-title { font-size: 1.4rem; }
 }
