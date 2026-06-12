@@ -2,9 +2,11 @@
  * sceneManager.js
  *
  * AR helmet overlay:
- * - Helmet rotated via pivot so EXTERIOR faces camera
- * - Face blocker sphere hides webcam through gaps
- * - Helmet persists when face is briefly lost
+ * - Helmet sits correctly wrapping around the user's full head
+ * - Z-axis shifted backward (-13.0cm) so the face sits inside the helmet cavity
+ * - Face blocker sphere sits inside the helmet wrapper as a dark inner lining
+ * - Eyes set to glow bright cyan for a premium, high-tech look
+ * - DoubleSide rendering fixes broken model faces
  */
 
 import * as THREE from "three";
@@ -16,15 +18,15 @@ import { OneEuroFilterVec } from "./oneEuroFilter.js";
 function createFaceBlocker() {
   const geo = new THREE.SphereGeometry(1, 48, 48);
   const mat = new THREE.MeshStandardMaterial({
-    color: 0x6b1515,        // Dark metallic red — matches helmet interior
-    metalness: 0.7,
-    roughness: 0.35,
+    color: 0x111111,        // Very dark grey/black interior lining
+    metalness: 0.5,
+    roughness: 0.8,
     side: THREE.FrontSide,
-    depthWrite: false,       // Never block helmet parts
+    depthWrite: false,       // Critical: never block helmet meshes
     depthTest: true,
   });
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.renderOrder = -1;
+  mesh.renderOrder = -1;    // Render first, before helmet meshes
   mesh.name = "faceBlocker";
   return mesh;
 }
@@ -57,9 +59,8 @@ export class SceneManager {
     this.helmetRoot.visible = false;
     this.scene.add(this.helmetRoot);
 
-    // Face blocker
+    // Create the face blocker
     this.faceBlocker = createFaceBlocker();
-    this.helmetRoot.add(this.faceBlocker);
 
     this.helmetModel = null;
     this.helmetWrapper = null;
@@ -114,17 +115,28 @@ export class SceneManager {
   }
 
   /**
-   * DoubleSide rendering + render order on all meshes
+   * DoubleSide rendering + render order on all meshes + glowing eyes
    */
   _prepareModel(model) {
     console.log("=== GLB HELMET PARTS ===");
     model.traverse((child) => {
       if (child.isMesh) {
         console.log(`  mesh: "${child.name || "unnamed"}"`);
+        
+        // Ensure child is visible
+        child.visible = true;
+
         const mats = Array.isArray(child.material) ? child.material : [child.material];
         mats.forEach((mat) => {
           mat.side = THREE.DoubleSide;
           mat.depthWrite = true;
+          
+          // Glowing Eyes effect
+          if (child.name.toLowerCase().includes("emissive") || child.name.toLowerCase().includes("eye")) {
+            mat.emissive = new THREE.Color(0x00f3ff); // High-tech cyan glow
+            mat.emissiveIntensity = 4.0;
+          }
+
           mat.needsUpdate = true;
         });
         child.renderOrder = 1;
@@ -135,10 +147,10 @@ export class SceneManager {
 
   /**
    * Set up the helmet:
-   * 1. Center model at origin
-   * 2. Wrap in a pivot group rotated 180° on Y (exterior faces camera)
-   * 3. Wrap pivot in a scale/offset wrapper
-   * 4. Size face blocker to fit inside
+   * 1. Center model at origin (facing front)
+   * 2. Wrap in wrapper group
+   * 3. Position wrapper Z=-13.0 so face sits INSIDE the helmet cavity
+   * 4. Add dark face blocker inside wrapper as a dark lining
    */
   _setupHelmet(model) {
     if (this.helmetWrapper) {
@@ -148,50 +160,48 @@ export class SceneManager {
     this.helmetModel = model;
     this._prepareModel(this.helmetModel);
 
-    // ── Step 1: Compute bounding box & center the model at origin ──
+    // ── Step 1: Compute bounding box & center the model ──
     const box = new THREE.Box3().setFromObject(this.helmetModel);
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
 
     console.log(`[MARK3] Raw size: ${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)}`);
 
-    // Center model at origin (so rotation pivots around center)
+    // Center model at origin (0,0,0 is now the geometric center of helmet)
     this.helmetModel.position.set(-center.x, -center.y, -center.z);
 
-    // ── Step 2: Pivot group — rotate 180° on Y ──
-    // This flips the helmet so the exterior faces the camera.
-    // Because the model is already centered at origin, the rotation
-    // spins it cleanly in place without drifting.
-    const pivot = new THREE.Group();
-    pivot.add(this.helmetModel);
-    pivot.rotation.y = Math.PI;
-
-    // ── Step 3: Scale wrapper ──
+    // ── Step 2: Scale wrapper ──
     const maxDim = Math.max(size.x, size.y, size.z);
-    const desiredSize = 38;
+    const desiredSize = 38; // Standard human head scale (38cm height/width wrapper)
     const scaleFactor = desiredSize / maxDim;
 
     const wrapper = new THREE.Group();
-    wrapper.add(pivot);
+    wrapper.add(this.helmetModel);
     wrapper.scale.setScalar(scaleFactor);
 
-    // Shift up so eye slits align with face center
+    // Position: shift up slightly (+Y) and shift BACKWARD (-13.0cm on Z)
+    // so the tracked face is inside the helmet cavity, rather than in front.
     const scaledHeight = size.y * scaleFactor;
-    wrapper.position.set(0, scaledHeight * 0.12, 0);
+    wrapper.position.set(0, scaledHeight * 0.05, -13.0);
 
     this.helmetWrapper = wrapper;
     this.helmetRoot.add(wrapper);
 
-    // ── Step 4: Face blocker sphere ──
-    // Sits inside the helmet to hide webcam feed through gaps.
-    // depthWrite:false means helmet always renders on top.
-    const bw = size.x * scaleFactor * 0.46;
-    const bh = size.y * scaleFactor * 0.50;
-    const bd = size.z * scaleFactor * 0.44;
+    // ── Step 3: Dark Inner Lining Blocker ──
+    // Placed inside the wrapper at (0, 0, 0), so it perfectly fills the interior cavity.
+    // Scales to be slightly smaller than the helmet itself.
+    const bw = size.x * 0.44;
+    const bh = size.y * 0.46;
+    const bd = size.z * 0.44;
     this.faceBlocker.scale.set(bw, bh, bd);
-    this.faceBlocker.position.set(0, scaledHeight * 0.06, 0);
+    this.faceBlocker.position.set(0, 0, 0);
 
-    console.log(`[MARK3] Helmet loaded. Scale: ${scaleFactor.toFixed(4)}, flipped 180° via pivot`);
+    if (this.faceBlocker.parent) {
+      this.faceBlocker.parent.remove(this.faceBlocker);
+    }
+    wrapper.add(this.faceBlocker);
+
+    console.log(`[MARK3] Helmet loaded. Scale: ${scaleFactor.toFixed(4)}, positioned Z=-13.0`);
   }
 
   loadHelmetModel(url = "/iron-man_helmet_mk3.glb") {
