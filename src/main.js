@@ -114,9 +114,9 @@ function onFaceResult(results, videoWidth, videoHeight) {
       const timestamp = performance.now() / 1000;
 
       scene.applyFaceMatrix(matData, timestamp);
-      scene.helmetRoot.visible = true;
     } else {
-      scene.helmetRoot.visible = false;
+      // Don't immediately hide — keep at last position for 1.5s
+      scene.onFaceLost();
     }
   } catch (err) {
     console.error("Error in onFaceResult:", err);

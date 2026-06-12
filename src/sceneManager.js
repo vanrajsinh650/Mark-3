@@ -1,9 +1,10 @@
 /**
  * sceneManager.js
  *
- * AR helmet overlay with proper face hiding.
- * Forces double-sided rendering on all model meshes to fix "broken" appearance.
- * Uses a large dark sphere to fully hide the real face behind the helmet.
+ * AR helmet overlay:
+ * - Face blocker sphere uses depthWrite:false so helmet always renders on top
+ * - Helmet persists when face is briefly lost (hand blocking etc.)
+ * - DoubleSide rendering fixes broken model faces
  */
 
 import * as THREE from "three";
@@ -11,21 +12,22 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OneEuroFilterVec } from "./oneEuroFilter.js";
 
 // ─── Face Blocker ───────────────────────────────────────────────────────────
-// A VISIBLE sphere that hides the real face behind the helmet.
-// Uses the same dark metallic red as the helmet so it blends in seamlessly.
-// Any part of this sphere visible through gaps looks like helmet surface.
+// Fills the face area with helmet-matching color to hide the webcam feed.
+// depthWrite: false = the helmet ALWAYS renders on top of this sphere,
+// regardless of position. The blocker ONLY blocks the webcam video behind it.
 
 function createFaceBlocker() {
   const geo = new THREE.SphereGeometry(1, 48, 48);
   const mat = new THREE.MeshStandardMaterial({
-    color: 0x6b1515,       // Dark metallic red — matches Iron Man helmet
+    color: 0x6b1515,       // Dark metallic red — matches helmet
     metalness: 0.7,
     roughness: 0.35,
     side: THREE.FrontSide,
-    depthWrite: true,
+    depthWrite: false,      // CRITICAL: never block helmet parts
+    depthTest: true,
   });
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.renderOrder = 0;
+  mesh.renderOrder = -1;   // Render FIRST, before helmet
   mesh.name = "faceBlocker";
   return mesh;
 }
@@ -58,7 +60,7 @@ export class SceneManager {
     this.helmetRoot.visible = false;
     this.scene.add(this.helmetRoot);
 
-    // Face blocker — renders BEFORE helmet, hides real face
+    // Face blocker
     this.faceBlocker = createFaceBlocker();
     this.helmetRoot.add(this.faceBlocker);
 
@@ -69,16 +71,20 @@ export class SceneManager {
     this.posFilter = new OneEuroFilterVec(3, 30, 0.8, 0.5, 1.0);
     this.quatFilter = new OneEuroFilterVec(4, 30, 0.5, 0.3, 1.0);
 
-    // Offsets (adjustable from UI)
+    // Offsets
     this.positionOffset = new THREE.Vector3(0, 0, 0);
     this.scaleMultiplier = 1.0;
     this.rotationOffset = new THREE.Euler(0, 0, 0);
+
+    // Persistence: keep helmet visible when face tracking is briefly lost
+    this._faceDetected = false;
+    this._lastFaceTime = 0;
+    this._persistMs = 1500; // Keep helmet visible for 1.5s after losing face
 
     this.gltfLoader = new GLTFLoader();
   }
 
   _setupLights() {
-    // Strong multi-directional lighting for realistic metallic look
     const keyLight = new THREE.DirectionalLight(0xffffff, 4.5);
     keyLight.position.set(3, 4, 5);
     this.camera.add(keyLight);
@@ -111,40 +117,28 @@ export class SceneManager {
   }
 
   /**
-   * Setup the loaded model for proper rendering:
-   * - Force double-sided rendering (fixes invisible/broken faces)
-   * - Set renderOrder so helmet draws ON TOP of the face blocker
+   * Force double-sided rendering + correct render order on all model meshes
    */
   _prepareModel(model) {
     model.traverse((child) => {
       if (child.isMesh) {
-        // CRITICAL: Force double-sided rendering.
-        // Many GLB models have faces with normals pointing only outward.
-        // From certain angles, the back faces are invisible, making the
-        // helmet look "broken" with holes. DoubleSide fixes this.
         if (child.material) {
-          if (Array.isArray(child.material)) {
-            child.material.forEach((mat) => {
-              mat.side = THREE.DoubleSide;
-              mat.needsUpdate = true;
-            });
-          } else {
-            child.material.side = THREE.DoubleSide;
-            child.material.needsUpdate = true;
-          }
+          const mats = Array.isArray(child.material) ? child.material : [child.material];
+          mats.forEach((mat) => {
+            mat.side = THREE.DoubleSide;
+            mat.depthWrite = true;
+            mat.needsUpdate = true;
+          });
         }
-        // Render AFTER the face blocker
-        child.renderOrder = 1;
+        child.renderOrder = 1; // Render AFTER face blocker
       }
     });
   }
 
   /**
-   * Load helmet model, center it, scale it to cover the full head,
-   * and set up the face blocker.
+   * Set up the loaded helmet model
    */
   _setupHelmet(model) {
-    // Remove previous
     if (this.helmetWrapper) {
       this.helmetRoot.remove(this.helmetWrapper);
     }
@@ -162,57 +156,42 @@ export class SceneManager {
     // Center at origin
     this.helmetModel.position.set(-center.x, -center.y, -center.z);
 
-    // Scale: ~38cm max dimension — slightly larger than a real head
-    // to ensure full coverage from every angle
+    // Scale to ~38cm to fully cover head
     const maxDim = Math.max(size.x, size.y, size.z);
     const desiredSize = 38;
     const scaleFactor = desiredSize / maxDim;
 
-    // Wrapper group for scale + offset
     const wrapper = new THREE.Group();
     wrapper.add(this.helmetModel);
     wrapper.scale.setScalar(scaleFactor);
 
-    // Shift UP so the helmet's eye slits align with the face center.
-    // MediaPipe tracks the nose bridge area. The helmet's geometric center
-    // is above the eye level (because of the dome). Shift up to compensate.
+    // Shift up so eye slits align with face center
     const scaledHeight = size.y * scaleFactor;
     wrapper.position.set(0, scaledHeight * 0.12, 0);
 
     this.helmetWrapper = wrapper;
     this.helmetRoot.add(wrapper);
 
-    // Face blocker: sized to fit INSIDE the helmet shell.
-    // Slightly smaller than the helmet so it never protrudes past the edges.
-    // Its dark red metallic surface blends with the helmet — looks like
-    // the inner/back surface of the helmet shell from any angle.
-    const blockerW = size.x * scaleFactor * 0.48;
-    const blockerH = size.y * scaleFactor * 0.52;
-    const blockerD = size.z * scaleFactor * 0.46;
-    this.faceBlocker.scale.set(blockerW, blockerH, blockerD);
-    // Center it on the face, slightly up and back
-    this.faceBlocker.position.set(0, scaledHeight * 0.08, -0.5);
+    // Face blocker: fits inside the helmet, big enough to cover entire face.
+    // Since depthWrite is false, the helmet always shows on top of it.
+    const bw = size.x * scaleFactor * 0.46;
+    const bh = size.y * scaleFactor * 0.50;
+    const bd = size.z * scaleFactor * 0.44;
+    this.faceBlocker.scale.set(bw, bh, bd);
+    this.faceBlocker.position.set(0, scaledHeight * 0.06, 0);
 
-    console.log(`[MARK3] Loaded. Scale: ${scaleFactor.toFixed(4)}, desired: ${desiredSize}cm`);
+    console.log(`[MARK3] Loaded. Scale: ${scaleFactor.toFixed(4)}`);
   }
 
   loadHelmetModel(url = "/iron-man_helmet_mk3.glb") {
     return new Promise((resolve, reject) => {
       this.gltfLoader.load(
         url,
-        (gltf) => {
-          this._setupHelmet(gltf.scene);
-          resolve();
-        },
+        (gltf) => { this._setupHelmet(gltf.scene); resolve(); },
         (progress) => {
-          if (progress.total) {
-            console.log(`[MARK3] Loading: ${Math.round((progress.loaded / progress.total) * 100)}%`);
-          }
+          if (progress.total) console.log(`[MARK3] Loading: ${Math.round((progress.loaded / progress.total) * 100)}%`);
         },
-        (err) => {
-          console.error("[MARK3] Load failed:", err);
-          reject(err);
-        }
+        (err) => { console.error("[MARK3] Load failed:", err); reject(err); }
       );
     });
   }
@@ -224,8 +203,14 @@ export class SceneManager {
     this.renderer.setSize(videoWidth, videoHeight, false);
   }
 
+  /**
+   * Called when face IS detected — apply the matrix
+   */
   applyFaceMatrix(matrixData, timestamp) {
     if (!matrixData) return;
+
+    this._faceDetected = true;
+    this._lastFaceTime = performance.now();
 
     const m = new THREE.Matrix4().fromArray(matrixData);
     const pos = new THREE.Vector3();
@@ -259,6 +244,20 @@ export class SceneManager {
     this.helmetRoot.quaternion.multiply(offsetQuat);
 
     this.helmetRoot.scale.setScalar(this.scaleMultiplier);
+    this.helmetRoot.visible = true;
+  }
+
+  /**
+   * Called when face is NOT detected — keep helmet visible for a while
+   * so it doesn't disappear when a hand briefly blocks the face.
+   */
+  onFaceLost() {
+    this._faceDetected = false;
+    const elapsed = performance.now() - this._lastFaceTime;
+    if (elapsed > this._persistMs) {
+      this.helmetRoot.visible = false;
+    }
+    // Otherwise keep visible at last known position
   }
 
   loadCustomModel(file) {
@@ -266,11 +265,7 @@ export class SceneManager {
       const url = URL.createObjectURL(file);
       this.gltfLoader.load(
         url,
-        (gltf) => {
-          this._setupHelmet(gltf.scene);
-          URL.revokeObjectURL(url);
-          resolve();
-        },
+        (gltf) => { this._setupHelmet(gltf.scene); URL.revokeObjectURL(url); resolve(); },
         undefined,
         (err) => { URL.revokeObjectURL(url); reject(err); }
       );
