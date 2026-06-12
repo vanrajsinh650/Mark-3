@@ -148,7 +148,7 @@ export class SceneManager {
 
     // ── Step 2: Scale wrapper ──
     const maxDim = Math.max(size.x, size.y, size.z);
-    const desiredSize = 38; // standard human head height/width scale
+    const desiredSize = 44; // standard human head height/width scale
     const scaleFactor = desiredSize / maxDim;
 
     const wrapper = new THREE.Group();
@@ -158,7 +158,7 @@ export class SceneManager {
     // Align the eye slits slightly upwards relative to the head center pivot.
     // The Z offset is 0 because the Z-pivot offset is handled programmatically in applyFaceMatrix.
     const scaledHeight = size.y * scaleFactor;
-    wrapper.position.set(0, scaledHeight * 0.06, 0);
+    wrapper.position.set(0, scaledHeight * 0.12, 0);
 
     this.helmetWrapper = wrapper;
     this.helmetRoot.add(wrapper);

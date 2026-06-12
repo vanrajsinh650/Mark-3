@@ -52,6 +52,15 @@ async function init() {
 
   // 1. Create SceneManager
   scene = new SceneManager(canvasEl);
+  
+  // Sync offsets from HTML sliders immediately on startup
+  scene.positionOffset.x = parseFloat(offsetX.value);
+  scene.positionOffset.y = parseFloat(offsetY.value);
+  scene.positionOffset.z = parseFloat(offsetZ.value);
+  scene.rotationOffset.x = (parseFloat(rotateX.value) * Math.PI) / 180;
+  scene.rotationOffset.y = (parseFloat(rotateY.value) * Math.PI) / 180;
+  scene.scaleMultiplier = parseFloat(helmetScale.value);
+
   setLoading(20);
 
   // 2. Load the real GLB helmet model
